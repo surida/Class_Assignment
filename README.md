@@ -146,7 +146,9 @@ python3 class_assigner.py
 
 ### Phase 0: 데이터 로드
 - 5학년 7개 반 학생 데이터를 통합
-- 성적순으로 정렬
+- 성별별 등수(rank) 계산 및 저장
+  - 남학생: 점수순으로 1~75등
+  - 여학생: 점수순으로 1~77등
 
 ### Phase 1: 규칙 적용 🔴 (최우선)
 - **합반 규칙** 먼저 적용 (제약이 더 강함)
@@ -307,6 +309,34 @@ $ python3 class_assigner.py
   - `openpyxl`: Excel 파일 읽기/쓰기
   - `numpy`: 수치 계산
   - `dataclasses`: 데이터 구조
+
+---
+
+## 🧪 테스트
+
+프로그램의 핵심 로직에 대한 단위 테스트가 포함되어 있습니다.
+
+### 테스트 실행
+
+```bash
+# 모든 테스트 실행
+pytest tests/ -v
+
+# 규칙 검증 테스트만 실행
+pytest tests/test_validate_rules.py -v
+
+# 특정 테스트 실행
+pytest tests/test_validate_rules.py::test_conflict_two_persons -v
+```
+
+### 테스트 커버리지
+
+| 테스트 파일 | 테스트 수 | 대상 함수 | 커버리지 | 결과 문서 |
+|------------|---------|----------|---------|-----------|
+| `test_validate_rules.py` | 14개 | `_validate_rules` | 100% | [TEST_RESULTS.md](tests/TEST_RESULTS.md) |
+| `test_phase1_apply_rules.py` | 13개 | `phase1_apply_rules` | 100% | [TEST_RESULTS_PHASE1.md](tests/TEST_RESULTS_PHASE1.md) |
+| `test_phase2_distribute_special_needs.py` | 13개 | `phase2_distribute_special_needs` | 100% | [TEST_RESULTS_PHASE2.md](tests/TEST_RESULTS_PHASE2.md) |
+| **합계** | **40개** | **3개 함수** | **100%** | - |
 
 ---
 

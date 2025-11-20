@@ -30,6 +30,7 @@ class Student:
     # 배정 관련 필드
     assigned_class: Optional[int] = None  # 배정된 6학년 반 (1-7)
     locked: bool = False  # 배정 후 변경 불가 플래그
+    rank: Optional[int] = None  # 성별 내 등수 (남학생이면 남학생 중, 여학생이면 여학생 중)
 
     def __post_init__(self):
         # NaN 처리
@@ -94,14 +95,30 @@ class ClassAssigner:
                 )
                 all_students.append(student)
 
-        # 점수순으로 정렬 (요구사항 0)
-        self.students = sorted(all_students, key=lambda s: s.점수, reverse=True)
+        self.students = all_students
+
+        # 성별별 등수 계산
+        self._calculate_ranks()
 
         print(f"   ✅ 총 {len(self.students)}명의 학생 데이터 로드 완료")
         print(f"   - 남학생: {sum(1 for s in self.students if s.성별 == '남')}명")
         print(f"   - 여학생: {sum(1 for s in self.students if s.성별 == '여')}명")
         print(f"   - 특수반: {sum(1 for s in self.students if s.특수반)}명")
         print(f"   - 전출생: {sum(1 for s in self.students if s.전출)}명")
+
+    def _calculate_ranks(self):
+        """성별별 등수 계산"""
+        # 남학생 등수 부여
+        males = sorted([s for s in self.students if s.성별 == '남'],
+                      key=lambda s: s.점수, reverse=True)
+        for rank, student in enumerate(males, 1):
+            student.rank = rank
+
+        # 여학생 등수 부여
+        females = sorted([s for s in self.students if s.성별 == '여'],
+                        key=lambda s: s.점수, reverse=True)
+        for rank, student in enumerate(females, 1):
+            student.rank = rank
 
     def load_rules(self):
         """분반/합반 규칙 로드 및 검증"""
@@ -370,9 +387,9 @@ class ClassAssigner:
 
         print(f"   ✅ 반별 난이도 합: {difficulty_sum}")
 
-    def phase5_balance_comprehensive(self):
-        """Phase 5: 학생 수, 성비, 성적 종합 균형"""
-        print("\n🎯 Phase 5: 종합 균형 조정 중...")
+    def phase5_balance_remaining(self):
+        """Phase 5: 남은 학생 최종 균형 배정"""
+        print("\n🎯 Phase 5: 남은 학생 최종 균형 배정 중...")
 
         # 미배정 학생들
         unassigned = [s for s in self.students if s.assigned_class is None]
@@ -437,7 +454,7 @@ class ClassAssigner:
             else:
                 print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
 
-        print("   ✅ 종합 균형 조정 완료")
+        print("   ✅ 남은 학생 최종 균형 배정 완료")
 
     def phase6_random_distribution(self):
         """Phase 6: 랜덤 순환 배정"""
@@ -563,7 +580,7 @@ class ClassAssigner:
             self.phase2_distribute_special_needs()
             self.phase3_separate_same_names()
             self.phase4_balance_difficulty()
-            self.phase5_balance_comprehensive()
+            self.phase5_balance_remaining()
             self.phase6_random_distribution()
 
             # 결과 생성
