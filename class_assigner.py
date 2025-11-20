@@ -66,6 +66,7 @@ class ClassAssigner:
 
         # 규칙
         self.separation_rules: Dict[str, Set[str]] = defaultdict(set)  # 분반 규칙
+        self.separation_pairs: List[Tuple[str, str]] = []  # 분반 쌍 (색상 구분용)
         self.together_groups: List[Set[str]] = []  # 합반 규칙
 
         print("=" * 70)
@@ -140,6 +141,7 @@ class ClassAssigner:
             if pd.notna(student1_name) and pd.notna(student2_name):
                 self.separation_rules[student1_name].add(student2_name)
                 self.separation_rules[student2_name].add(student1_name)
+                self.separation_pairs.append((student1_name, student2_name))  # 쌍 저장
                 separation_count += 1
 
         # 합반 규칙 파싱 (마지막 5개 열)
@@ -149,11 +151,17 @@ class ClassAssigner:
             if idx == 0:  # 헤더 행 스킵
                 continue
 
-            student_name = row['Unnamed: 7']
+            student1_name = row['Unnamed: 7']  # 왼쪽 이름
+            student2_name = row['Unnamed: 10']  # 오른쪽 이름
 
-            if pd.notna(student_name):
-                current_group.add(student_name)
+            # 왼쪽 또는 오른쪽에 학생 이름이 있으면 그룹에 추가
+            if pd.notna(student1_name) or pd.notna(student2_name):
+                if pd.notna(student1_name):
+                    current_group.add(student1_name)
+                if pd.notna(student2_name):
+                    current_group.add(student2_name)
             else:
+                # 둘 다 비어있으면 그룹 종료
                 if current_group:
                     self.together_groups.append(current_group)
                     together_count += len(current_group)
@@ -500,6 +508,46 @@ class ClassAssigner:
         """결과를 엑셀 파일로 출력"""
         print("\n📊 결과 생성 중...")
 
+        from openpyxl.styles import PatternFill
+
+        # 색상 팔레트 (30개 - 분반 쌍별 구분, 부족하면 재사용)
+        COLOR_PALETTE = [
+            "FFFF99", "FFCC99", "CCFFCC", "FFCCFF", "E6CCFF",
+            "FFE6CC", "E6E6E6", "FFE6E6", "E6FFE6", "FFE6F0",
+            "F0E6FF", "E6F0FF", "FFF0E6", "F0FFE6", "FFE6FF",
+            "E6FFFF", "FFFFDD", "FFDDDD", "DDFFDD", "DDDDFF",
+            "FFDDFF", "DDFFFF", "FFFFEE", "FFEEFF", "EEFFEE",
+            "EEEEFF", "FFEEDD", "DDEEFF", "EEFFDD", "FFDDEE",
+        ]
+
+        # 합반 규칙 색상
+        TOGETHER_FILL = PatternFill(start_color="CCFFFF", end_color="CCFFFF", fill_type="solid")  # 연한 파란색
+
+        # 합반 규칙 학생 이름 집합 생성
+        together_students = set()
+        for group in self.together_groups:
+            together_students.update(group)
+
+        # 분반 쌍별 색상 매핑 생성 (여러 쌍에 속한 학생은 리스트로 저장)
+        student_to_color = {}
+        for idx, (student1, student2) in enumerate(self.separation_pairs):
+            color = COLOR_PALETTE[idx % len(COLOR_PALETTE)]
+            fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+            # 각 학생이 속한 모든 쌍의 색상을 리스트로 저장
+            if student1 not in student_to_color:
+                student_to_color[student1] = []
+            student_to_color[student1].append(fill)
+
+            if student2 not in student_to_color:
+                student_to_color[student2] = []
+            student_to_color[student2].append(fill)
+
+        # 디버깅: 색상 적용 대상 출력
+        print(f"   📌 합반 규칙 학생: {sorted(together_students)}")
+        print(f"   📌 분반 규칙: {len(self.separation_pairs)}쌍")
+        print(f"   📌 분반 규칙 학생: {len(student_to_color)}명")
+
         wb = openpyxl.Workbook()
         wb.remove(wb.active)  # 기본 시트 제거
 
@@ -538,6 +586,30 @@ class ClassAssigner:
             ws = wb.create_sheet(title=f'6-{class_num}')
             for r in dataframe_to_rows(df, index=False, header=True):
                 ws.append(r)
+
+            # 색상 적용 (헤더는 제외, 데이터 행만)
+            for row_idx, student in enumerate(students, start=2):  # 2부터 시작 (1은 헤더)
+                # 합반 규칙 학생인지 확인
+                if student.이름 in together_students:
+                    # 합반: 모든 셀에 동일한 파란색
+                    for col_idx in range(1, 11):  # 10개 열 (학년~비고)
+                        ws.cell(row=row_idx, column=col_idx).fill = TOGETHER_FILL
+
+                # 분반 규칙 학생인지 확인 (쌍별 색상)
+                elif student.이름 in student_to_color:
+                    fills = student_to_color[student.이름]
+
+                    if len(fills) == 1:
+                        # 1개 쌍: 모든 셀에 동일한 색상
+                        for col_idx in range(1, 11):
+                            ws.cell(row=row_idx, column=col_idx).fill = fills[0]
+                    else:
+                        # 2개 이상 쌍: 홀수 셀과 짝수 셀에 번갈아가며 색상 적용
+                        for col_idx in range(1, 11):
+                            # 홀수 셀(1,3,5,7,9): 첫 번째 색상
+                            # 짝수 셀(2,4,6,8,10): 두 번째 색상
+                            fill_idx = (col_idx - 1) % len(fills)
+                            ws.cell(row=row_idx, column=col_idx).fill = fills[fill_idx]
 
             # 요약 데이터 수집
             summary_data.append({
