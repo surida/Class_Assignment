@@ -1,0 +1,591 @@
+"""
+자동 학급 편성 프로그램
+5학년 152명의 학생을 7개 반으로 균등하게 배정하는 시스템
+"""
+
+import pandas as pd
+import numpy as np
+from dataclasses import dataclass, field
+from typing import List, Dict, Set, Tuple, Optional
+import random
+from collections import defaultdict, Counter
+import openpyxl
+from openpyxl.utils.dataframe import dataframe_to_rows
+
+
+@dataclass
+class Student:
+    """학생 정보를 담는 데이터 클래스"""
+    학년: int
+    원반: int  # 원래 5학년 반
+    원번호: int  # 원래 번호
+    이름: str
+    성별: str
+    점수: float
+    특수반: bool
+    전출: bool
+    난이도: float
+    비고: str
+
+    # 배정 관련 필드
+    assigned_class: Optional[int] = None  # 배정된 6학년 반 (1-7)
+    locked: bool = False  # 배정 후 변경 불가 플래그
+
+    def __post_init__(self):
+        # NaN 처리
+        if pd.isna(self.특수반):
+            self.특수반 = False
+        else:
+            self.특수반 = bool(self.특수반)
+
+        if pd.isna(self.전출):
+            self.전출 = False
+        else:
+            self.전출 = bool(self.전출)
+
+        if pd.isna(self.난이도):
+            self.난이도 = 0.0
+
+        if pd.isna(self.비고):
+            self.비고 = ""
+
+    def effective_count(self) -> int:
+        """특수반 학생은 3명으로 계산"""
+        return 3 if self.특수반 else 1
+
+
+class ClassAssigner:
+    """학급 편성 시스템"""
+
+    def __init__(self, student_file: str, rules_file: str):
+        self.student_file = student_file
+        self.rules_file = rules_file
+        self.students: List[Student] = []
+        self.classes: Dict[int, List[Student]] = {i: [] for i in range(1, 8)}
+
+        # 규칙
+        self.separation_rules: Dict[str, Set[str]] = defaultdict(set)  # 분반 규칙
+        self.together_groups: List[Set[str]] = []  # 합반 규칙
+
+        print("=" * 70)
+        print("🎓 자동 학급 편성 프로그램 시작")
+        print("=" * 70)
+
+    def load_students(self):
+        """모든 시트에서 학생 데이터 로드"""
+        print("\n📚 Step 0: 학생 데이터 로드 중...")
+
+        all_students = []
+        for sheet_name in ['5-1', '5-2', '5-3', '5-4', '5-5', '5-6', '5-7']:
+            df = pd.read_excel(self.student_file, sheet_name=sheet_name)
+
+            for _, row in df.iterrows():
+                student = Student(
+                    학년=int(row['학년']),
+                    원반=int(row['반']),
+                    원번호=int(row['번호']),
+                    이름=str(row['이름']),
+                    성별=str(row['성별']),
+                    점수=float(row['점수']),
+                    특수반=row['특수반'],
+                    전출=row['전출'],
+                    난이도=row['난이도'],
+                    비고=row['비고']
+                )
+                all_students.append(student)
+
+        # 점수순으로 정렬 (요구사항 0)
+        self.students = sorted(all_students, key=lambda s: s.점수, reverse=True)
+
+        print(f"   ✅ 총 {len(self.students)}명의 학생 데이터 로드 완료")
+        print(f"   - 남학생: {sum(1 for s in self.students if s.성별 == '남')}명")
+        print(f"   - 여학생: {sum(1 for s in self.students if s.성별 == '여')}명")
+        print(f"   - 특수반: {sum(1 for s in self.students if s.특수반)}명")
+        print(f"   - 전출생: {sum(1 for s in self.students if s.전출)}명")
+
+    def load_rules(self):
+        """분반/합반 규칙 로드 및 검증"""
+        print("\n📋 Step 1: 분반/합반 규칙 로드 중...")
+
+        df = pd.read_excel(self.rules_file, sheet_name='Sheet1')
+
+        # 분반 규칙 파싱 (첫 5개 열)
+        separation_count = 0
+        for idx, row in df.iterrows():
+            if idx == 0:  # 헤더 행 스킵
+                continue
+
+            student1_class = row['분반해야하는 학생']
+            student1_name = row['Unnamed: 1']
+            student2_class = row['Unnamed: 3']
+            student2_name = row['Unnamed: 4']
+
+            if pd.notna(student1_name) and pd.notna(student2_name):
+                self.separation_rules[student1_name].add(student2_name)
+                self.separation_rules[student2_name].add(student1_name)
+                separation_count += 1
+
+        # 합반 규칙 파싱 (마지막 5개 열)
+        together_count = 0
+        current_group = set()
+        for idx, row in df.iterrows():
+            if idx == 0:  # 헤더 행 스킵
+                continue
+
+            student_name = row['Unnamed: 7']
+
+            if pd.notna(student_name):
+                current_group.add(student_name)
+            else:
+                if current_group:
+                    self.together_groups.append(current_group)
+                    together_count += len(current_group)
+                    current_group = set()
+
+        if current_group:
+            self.together_groups.append(current_group)
+            together_count += len(current_group)
+
+        print(f"   ✅ 분반 규칙: {separation_count}쌍")
+        print(f"   ✅ 합반 규칙: {len(self.together_groups)}그룹 ({together_count}명)")
+
+        # 규칙 충돌 검증
+        self._validate_rules()
+
+    def _validate_rules(self):
+        """규칙 간 논리적 모순 검증"""
+        print("   🔍 규칙 충돌 검증 중...")
+
+        conflicts = []
+
+        # 합반 그룹 내부에서 분반 규칙 검사
+        for group in self.together_groups:
+            for name1 in group:
+                for name2 in group:
+                    if name1 != name2 and name2 in self.separation_rules.get(name1, set()):
+                        conflicts.append(f"❌ 충돌: {name1}와 {name2}는 합반해야 하지만 동시에 분반해야 함")
+
+        if conflicts:
+            print("\n" + "=" * 70)
+            print("⚠️  규칙 충돌 발견!")
+            print("=" * 70)
+            for conflict in conflicts:
+                print(conflict)
+            print("\n💡 해결 방법: '02 분반 합반할 학생 규칙.xlsx' 파일을 수정해주세요.")
+            raise ValueError("규칙 충돌이 발견되었습니다. 위의 충돌을 해결한 후 다시 실행해주세요.")
+
+        print("   ✅ 규칙 충돌 없음 - 모든 규칙이 논리적으로 일관됨")
+
+    def _find_student_by_name(self, name: str) -> Optional[Student]:
+        """이름으로 학생 찾기"""
+        for student in self.students:
+            if student.이름 == name:
+                return student
+        return None
+
+    def _can_assign(self, student: Student, class_num: int) -> bool:
+        """학생을 특정 반에 배정할 수 있는지 검사 (분반 규칙 체크)"""
+        # 이미 해당 반에 있는 학생들의 이름 목록
+        students_in_class = [s.이름 for s in self.classes[class_num]]
+
+        # 분반 규칙 확인
+        names_to_avoid = self.separation_rules.get(student.이름, set())
+        for name in students_in_class:
+            if name in names_to_avoid:
+                return False
+
+        return True
+
+    def _assign_student(self, student: Student, class_num: int, lock: bool = False):
+        """학생을 특정 반에 배정"""
+        if student.assigned_class is not None:
+            # 이미 배정된 경우
+            return
+
+        # 분반 규칙 검증
+        if not self._can_assign(student, class_num):
+            # 배정할 수 없는 경우 - 다른 반 찾기
+            for alternative_class in range(1, 8):
+                if alternative_class != class_num and self._can_assign(student, alternative_class):
+                    class_num = alternative_class
+                    break
+            else:
+                # 어느 반에도 배정할 수 없음 - 오류
+                print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (분반 규칙 충돌)")
+                return
+
+        student.assigned_class = class_num
+        self.classes[class_num].append(student)
+
+        if lock:
+            student.locked = True
+
+    def phase1_apply_rules(self):
+        """Phase 1: 분반/합반 규칙 적용"""
+        print("\n🎯 Phase 1: 분반/합반 규칙 적용 중...")
+
+        # 먼저 합반 그룹 배정 (제약이 더 강함)
+        for group_idx, group in enumerate(self.together_groups):
+            # 그룹의 모든 학생 찾기
+            group_students = []
+            for name in group:
+                student = self._find_student_by_name(name)
+                if student:
+                    group_students.append(student)
+                else:
+                    print(f"   ⚠️  경고: '{name}' 학생을 명단에서 찾을 수 없습니다.")
+
+            if group_students:
+                # 학생 수가 가장 적은 반에 배정
+                target_class = min(self.classes.keys(),
+                                 key=lambda c: len(self.classes[c]))
+
+                for student in group_students:
+                    self._assign_student(student, target_class, lock=True)
+
+                print(f"   ✅ 합반 그룹 {group_idx + 1}: {[s.이름 for s in group_students]} → {target_class}반")
+
+        # 분반 규칙 적용 (이미 배정된 학생들 고려)
+        separation_applied = 0
+        for name1, names_to_avoid in self.separation_rules.items():
+            student1 = self._find_student_by_name(name1)
+            if not student1:
+                continue
+
+            if student1.assigned_class is not None:
+                # 이미 배정됨 - 피해야 할 학생들을 다른 반에 배정
+                for name2 in names_to_avoid:
+                    student2 = self._find_student_by_name(name2)
+                    if student2 and student2.assigned_class is None:
+                        # student1과 다른 반 중 가장 학생 수가 적은 반 선택
+                        available_classes = [c for c in range(1, 8) if c != student1.assigned_class]
+                        target_class = min(available_classes,
+                                         key=lambda c: len(self.classes[c]))
+                        self._assign_student(student2, target_class, lock=True)
+                        separation_applied += 1
+
+        assigned_count = sum(1 for s in self.students if s.assigned_class is not None)
+        print(f"   ✅ Phase 1 완료: {assigned_count}명 배정됨")
+
+    def phase2_distribute_special_needs(self):
+        """Phase 2: 특수반 학생 균등 배치"""
+        print("\n🎯 Phase 2: 특수반 학생 균등 배치 중...")
+
+        # 특수반 학생 현황 파악
+        special_students = [s for s in self.students if s.특수반]
+        assigned_special = [s for s in special_students if s.assigned_class is not None]
+        unassigned_special = [s for s in special_students if s.assigned_class is None]
+
+        print(f"   - 총 특수반 학생: {len(special_students)}명")
+        print(f"   - 이미 배정됨: {len(assigned_special)}명")
+        print(f"   - 배정 필요: {len(unassigned_special)}명")
+
+        # 각 반의 현재 특수반 학생 수
+        special_count_per_class = {c: sum(1 for s in self.classes[c] if s.특수반)
+                                  for c in range(1, 8)}
+
+        # 특수반 학생을 적은 반부터 배정 (분반 규칙 고려)
+        for student in unassigned_special:
+            # 배정 가능한 반 중 특수반 학생이 가장 적은 반 선택
+            valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
+            if valid_classes:
+                target_class = min(valid_classes,
+                                 key=lambda c: special_count_per_class[c])
+                self._assign_student(student, target_class, lock=True)
+                special_count_per_class[target_class] += 1
+            else:
+                print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
+
+        print(f"   ✅ 반별 특수반 학생 수: {special_count_per_class}")
+
+    def phase3_separate_same_names(self):
+        """Phase 3: 동명이인 분리"""
+        print("\n🎯 Phase 3: 동명이인 분리 중...")
+
+        # 이름별 빈도 계산
+        name_counts = Counter(s.이름 for s in self.students)
+        duplicate_names = {name: count for name, count in name_counts.items() if count > 1}
+
+        if not duplicate_names:
+            print("   ✅ 동명이인 없음")
+            return
+
+        print(f"   - 동명이인: {duplicate_names}")
+
+        for name, count in duplicate_names.items():
+            students_with_name = [s for s in self.students if s.이름 == name]
+            assigned = [s for s in students_with_name if s.assigned_class is not None]
+            unassigned = [s for s in students_with_name if s.assigned_class is None]
+
+            # 이미 배정된 반 목록
+            used_classes = {s.assigned_class for s in assigned}
+
+            # 배정되지 않은 학생들을 다른 반에 배정
+            for student in unassigned:
+                # 동명이인이 없고 배정 가능한 반 중 학생 수가 가장 적은 반 선택
+                valid_classes = [c for c in range(1, 8)
+                               if c not in used_classes and self._can_assign(student, c)]
+
+                if valid_classes:
+                    target_class = min(valid_classes,
+                                     key=lambda c: len(self.classes[c]))
+                    self._assign_student(student, target_class, lock=True)
+                    used_classes.add(target_class)
+                else:
+                    print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (동명이인/규칙 충돌)")
+
+        print("   ✅ 동명이인 분리 완료")
+
+    def phase4_balance_difficulty(self):
+        """Phase 4: 난이도 균등 배분"""
+        print("\n🎯 Phase 4: 난이도 균등 배분 중...")
+
+        # 난이도가 있는 미배정 학생들
+        unassigned = [s for s in self.students
+                     if s.assigned_class is None and s.난이도 > 0]
+
+        if not unassigned:
+            print("   ✅ 배정할 난이도 학생 없음")
+            return
+
+        print(f"   - 난이도 배정 대상: {len(unassigned)}명")
+
+        # 난이도가 높은 학생부터 배정 (균등 배분을 위해)
+        unassigned.sort(key=lambda s: s.난이도, reverse=True)
+
+        # 각 반의 현재 난이도 합
+        difficulty_sum = {c: sum(s.난이도 for s in self.classes[c])
+                         for c in range(1, 8)}
+
+        for student in unassigned:
+            # 배정 가능한 반 중 현재 난이도 합이 가장 낮은 반에 배정
+            valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
+            if valid_classes:
+                target_class = min(valid_classes,
+                                 key=lambda c: difficulty_sum[c])
+                self._assign_student(student, target_class, lock=True)
+                difficulty_sum[target_class] += student.난이도
+            else:
+                print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
+
+        print(f"   ✅ 반별 난이도 합: {difficulty_sum}")
+
+    def phase5_balance_comprehensive(self):
+        """Phase 5: 학생 수, 성비, 성적 종합 균형"""
+        print("\n🎯 Phase 5: 종합 균형 조정 중...")
+
+        # 미배정 학생들
+        unassigned = [s for s in self.students if s.assigned_class is None]
+
+        if not unassigned:
+            print("   ✅ 모든 학생 배정 완료")
+            return
+
+        print(f"   - 배정 대상: {len(unassigned)}명")
+
+        # 목표 인원 계산 (특수반 학생 = 3명으로 계산)
+        total_effective = sum(s.effective_count() for s in self.students)
+        target_per_class = total_effective / 7
+
+        print(f"   - 총 유효 인원: {total_effective:.1f}명")
+        print(f"   - 반별 목표: {target_per_class:.1f}명")
+
+        # 성별로 분리
+        male_unassigned = [s for s in unassigned if s.성별 == '남']
+        female_unassigned = [s for s in unassigned if s.성별 == '여']
+
+        # 점수순 정렬
+        male_unassigned.sort(key=lambda s: s.점수, reverse=True)
+        female_unassigned.sort(key=lambda s: s.점수, reverse=True)
+
+        # 각 반의 현재 유효 인원, 성별 수 계산
+        def get_class_stats():
+            stats = {}
+            for c in range(1, 8):
+                students = self.classes[c]
+                stats[c] = {
+                    'effective': sum(s.effective_count() for s in students),
+                    'male': sum(1 for s in students if s.성별 == '남'),
+                    'female': sum(1 for s in students if s.성별 == '여'),
+                    'score_sum': sum(s.점수 for s in students)
+                }
+            return stats
+
+        # 남학생 배정
+        for student in male_unassigned:
+            stats = get_class_stats()
+            # 배정 가능한 반 중에서 유효 인원이 가장 적고, 남학생 비율이 낮은 반 선택
+            valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
+            if valid_classes:
+                target_class = min(valid_classes,
+                                 key=lambda c: (stats[c]['effective'],
+                                              stats[c]['male']))
+                self._assign_student(student, target_class, lock=False)
+            else:
+                print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
+
+        # 여학생 배정
+        for student in female_unassigned:
+            stats = get_class_stats()
+            # 배정 가능한 반 중에서 유효 인원이 가장 적고, 여학생 비율이 낮은 반 선택
+            valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
+            if valid_classes:
+                target_class = min(valid_classes,
+                                 key=lambda c: (stats[c]['effective'],
+                                              stats[c]['female']))
+                self._assign_student(student, target_class, lock=False)
+            else:
+                print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
+
+        print("   ✅ 종합 균형 조정 완료")
+
+    def phase6_random_distribution(self):
+        """Phase 6: 랜덤 순환 배정"""
+        print("\n🎯 Phase 6: 랜덤 순환 배정 중...")
+
+        # 미배정 학생들 (Phase 5에서 모두 배정되어야 하지만 혹시 남은 경우 처리)
+        unassigned = [s for s in self.students if s.assigned_class is None]
+
+        if not unassigned:
+            print("   ✅ 배정할 학생 없음 (모두 완료)")
+            return
+
+        print(f"   - 배정 대상: {len(unassigned)}명")
+
+        # 성별로 분리 및 점수순 정렬
+        males = sorted([s for s in unassigned if s.성별 == '남'],
+                      key=lambda s: s.점수, reverse=True)
+        females = sorted([s for s in unassigned if s.성별 == '여'],
+                        key=lambda s: s.점수, reverse=True)
+
+        # 랜덤 반 순서 생성
+        male_order = list(range(1, 8))
+        female_order = list(range(1, 8))
+        random.shuffle(male_order)
+        random.shuffle(female_order)
+
+        print(f"   - 남학생 배정 순서: {male_order}")
+        print(f"   - 여학생 배정 순서: {female_order}")
+
+        # 남학생 순환 배정
+        for idx, student in enumerate(males):
+            class_num = male_order[idx % 7]
+            self._assign_student(student, class_num, lock=False)
+
+        # 여학생 순환 배정
+        for idx, student in enumerate(females):
+            class_num = female_order[idx % 7]
+            self._assign_student(student, class_num, lock=False)
+
+        print("   ✅ 랜덤 순환 배정 완료")
+
+    def generate_output(self, output_file: str):
+        """결과를 엑셀 파일로 출력"""
+        print("\n📊 결과 생성 중...")
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)  # 기본 시트 제거
+
+        summary_data = []
+
+        # 각 반별 시트 생성
+        for class_num in range(1, 8):
+            students = self.classes[class_num]
+
+            # 이름 가나다순 정렬
+            students.sort(key=lambda s: s.이름)
+
+            # 번호 재부여
+            for idx, student in enumerate(students, 1):
+                student.원번호 = idx
+
+            # 데이터프레임 생성
+            data = []
+            for s in students:
+                data.append({
+                    '학년': 6,
+                    '반': class_num,
+                    '번호': s.원번호,
+                    '이름': s.이름,
+                    '성별': s.성별,
+                    '점수': s.점수,
+                    '특수반': 1 if s.특수반 else '',
+                    '전출': 1 if s.전출 else '',
+                    '난이도': s.난이도 if s.난이도 > 0 else '',
+                    '비고': s.비고
+                })
+
+            df = pd.DataFrame(data)
+
+            # 시트 추가
+            ws = wb.create_sheet(title=f'6-{class_num}')
+            for r in dataframe_to_rows(df, index=False, header=True):
+                ws.append(r)
+
+            # 요약 데이터 수집
+            summary_data.append({
+                '반': f'6-{class_num}',
+                '학생수': len(students),
+                '남학생수': sum(1 for s in students if s.성별 == '남'),
+                '여학생수': sum(1 for s in students if s.성별 == '여'),
+                '난이도합': sum(s.난이도 for s in students),
+                '특수반수': sum(1 for s in students if s.특수반),
+                '전출생수': sum(1 for s in students if s.전출)
+            })
+
+            print(f"   ✅ {class_num}반 시트 생성: {len(students)}명")
+
+        # 요약 시트 생성
+        summary_df = pd.DataFrame(summary_data)
+        ws_summary = wb.create_sheet(title='요약', index=0)
+        for r in dataframe_to_rows(summary_df, index=False, header=True):
+            ws_summary.append(r)
+
+        # 파일 저장
+        wb.save(output_file)
+        print(f"\n✅ 결과 파일 저장: {output_file}")
+
+        # 요약 출력
+        print("\n" + "=" * 70)
+        print("📋 반별 요약")
+        print("=" * 70)
+        print(summary_df.to_string(index=False))
+
+    def run(self, output_file: str = "03 6학년 배정 결과.xlsx"):
+        """전체 프로세스 실행"""
+        try:
+            # 데이터 로드
+            self.load_students()
+            self.load_rules()
+
+            # 6단계 배정 프로세스
+            self.phase1_apply_rules()
+            self.phase2_distribute_special_needs()
+            self.phase3_separate_same_names()
+            self.phase4_balance_difficulty()
+            self.phase5_balance_comprehensive()
+            self.phase6_random_distribution()
+
+            # 결과 생성
+            self.generate_output(output_file)
+
+            print("\n" + "=" * 70)
+            print("🎉 학급 편성 완료!")
+            print("=" * 70)
+
+        except Exception as e:
+            print(f"\n❌ 오류 발생: {e}")
+            raise
+
+
+def main():
+    """메인 함수"""
+    assigner = ClassAssigner(
+        student_file='01 5학년_가상 명단.xlsx',
+        rules_file='02 분반 합반할 학생 규칙.xlsx'
+    )
+    assigner.run()
+
+
+if __name__ == '__main__':
+    main()
