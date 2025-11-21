@@ -11,6 +11,10 @@ import random
 from collections import defaultdict, Counter
 import openpyxl
 from openpyxl.utils.dataframe import dataframe_to_rows
+import os
+import sys
+import tkinter as tk
+from tkinter import filedialog, messagebox
 
 
 @dataclass
@@ -667,13 +671,165 @@ class ClassAssigner:
             raise
 
 
+def get_base_path():
+    """실행 파일의 경로를 반환 (PyInstaller 지원)"""
+    if getattr(sys, 'frozen', False):
+        # PyInstaller로 빌드된 실행 파일
+        return os.path.dirname(sys.executable)
+    else:
+        # 일반 Python 스크립트
+        return os.path.dirname(os.path.abspath(__file__))
+
+
+def select_file(title, filetypes, default_path=None, mode='open'):
+    """
+    파일 선택 다이얼로그
+
+    Args:
+        title: 다이얼로그 제목
+        filetypes: 파일 타입 리스트 [("Excel files", "*.xlsx"), ...]
+        default_path: 기본 파일 경로
+        mode: 'open' (파일 열기) 또는 'save' (파일 저장)
+
+    Returns:
+        선택된 파일 경로 (취소시 None)
+    """
+    root = tk.Tk()
+    root.withdraw()  # 메인 윈도우 숨기기
+
+    # 기본 경로 설정
+    if default_path and os.path.exists(os.path.dirname(default_path)):
+        initialdir = os.path.dirname(default_path)
+        initialfile = os.path.basename(default_path)
+    else:
+        initialdir = get_base_path()
+        initialfile = ""
+
+    # 파일 선택 다이얼로그
+    if mode == 'open':
+        file_path = filedialog.askopenfilename(
+            title=title,
+            filetypes=filetypes,
+            initialdir=initialdir,
+            initialfile=initialfile if os.path.exists(default_path or "") else ""
+        )
+    else:  # save
+        file_path = filedialog.asksaveasfilename(
+            title=title,
+            filetypes=filetypes,
+            initialdir=initialdir,
+            initialfile=initialfile,
+            defaultextension=".xlsx"
+        )
+
+    root.destroy()
+    return file_path if file_path else None
+
+
 def main():
     """메인 함수"""
-    assigner = ClassAssigner(
-        student_file='01 5학년_가상 명단.xlsx',
-        rules_file='02 분반 합반할 학생 규칙.xlsx'
+    print("=" * 70)
+    print("🎓 자동 학급 편성 프로그램")
+    print("=" * 70)
+
+    base_path = get_base_path()
+    excel_filetypes = [("Excel files", "*.xlsx"), ("All files", "*.*")]
+
+    # 기본 파일 경로
+    default_student_file = os.path.join(base_path, '01 5학년_가상 명단.xlsx')
+    default_rules_file = os.path.join(base_path, '02 분반 합반할 학생 규칙.xlsx')
+    default_output_file = os.path.join(base_path, '03 6학년 배정 결과.xlsx')
+
+    # 1. 학생 명단 파일 선택
+    print("\n📂 Step 1: 5학년 학생 명단 파일을 선택하세요...")
+    student_file = select_file(
+        title="5학년 학생 명단 파일을 선택하세요",
+        filetypes=excel_filetypes,
+        default_path=default_student_file,
+        mode='open'
     )
-    assigner.run()
+
+    if not student_file:
+        print("❌ 파일 선택이 취소되었습니다.")
+        if sys.stdin.isatty():
+            input("\n종료하려면 Enter를 누르세요...")
+        sys.exit(0)
+
+    print(f"   ✅ 선택됨: {os.path.basename(student_file)}")
+
+    # 2. 규칙 파일 선택
+    print("\n📂 Step 2: 분반/합반 규칙 파일을 선택하세요...")
+    rules_file = select_file(
+        title="분반/합반 규칙 파일을 선택하세요",
+        filetypes=excel_filetypes,
+        default_path=default_rules_file,
+        mode='open'
+    )
+
+    if not rules_file:
+        print("❌ 파일 선택이 취소되었습니다.")
+        if sys.stdin.isatty():
+            input("\n종료하려면 Enter를 누르세요...")
+        sys.exit(0)
+
+    print(f"   ✅ 선택됨: {os.path.basename(rules_file)}")
+
+    # 3. 출력 파일 위치 선택
+    print("\n📂 Step 3: 결과 파일을 저장할 위치를 선택하세요...")
+    output_file = select_file(
+        title="결과 파일 저장 위치",
+        filetypes=excel_filetypes,
+        default_path=default_output_file,
+        mode='save'
+    )
+
+    if not output_file:
+        print("❌ 파일 선택이 취소되었습니다.")
+        if sys.stdin.isatty():
+            input("\n종료하려면 Enter를 누르세요...")
+        sys.exit(0)
+
+    print(f"   ✅ 저장 위치: {os.path.basename(output_file)}")
+
+    # 4. 학급 편성 실행
+    try:
+        assigner = ClassAssigner(
+            student_file=student_file,
+            rules_file=rules_file
+        )
+        assigner.run(output_file=output_file)
+
+        print("\n" + "=" * 70)
+        print(f"✅ 결과 파일이 생성되었습니다!")
+        print(f"📁 위치: {output_file}")
+        print("=" * 70)
+
+        # 완료 메시지 박스 (GUI)
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showinfo(
+            "완료",
+            f"학급 편성이 완료되었습니다!\n\n결과 파일:\n{output_file}"
+        )
+        root.destroy()
+
+    except Exception as e:
+        print(f"\n❌ 오류가 발생했습니다: {e}")
+        import traceback
+        traceback.print_exc()
+
+        # 오류 메시지 박스 (GUI)
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(
+            "오류",
+            f"오류가 발생했습니다:\n\n{str(e)}\n\n자세한 내용은 콘솔을 확인하세요."
+        )
+        root.destroy()
+
+        if sys.stdin.isatty():
+            input("\n종료하려면 Enter를 누르세요...")
+        sys.exit(1)
 
 
 if __name__ == '__main__':

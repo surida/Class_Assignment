@@ -6,6 +6,7 @@
 - [프로그램 개요](#프로그램-개요)
 - [주요 기능](#주요-기능)
 - [사용 방법](#사용-방법)
+- [배포 방법](#배포-방법)
 - [입력 파일 형식](#입력-파일-형식)
 - [출력 파일 형식](#출력-파일-형식)
 - [배정 알고리즘](#배정-알고리즘)
@@ -52,21 +53,109 @@
 
 ## 사용 방법
 
-### 1. 필요한 파일 준비
+### 방법 1: GUI 실행 파일 사용 (일반 사용자 권장)
+
+#### macOS
+1. `dist/학급편성.app` 더블클릭
+2. 창이 열리면 **파일 선택** 버튼으로 파일 지정
+   - 📚 5학년 명단 파일 선택
+   - 📋 분반/합반 규칙 파일 선택
+3. **🚀 학급 편성 시작** 버튼 클릭
+4. 진행 상황 확인 후 완료 메시지 확인
+5. 결과 파일은 명단 파일과 같은 폴더에 자동 저장
+
+#### Windows
+1. `dist/학급편성.exe` 더블클릭
+2. 동일한 방식으로 사용
+
+### 방법 2: Python 스크립트 실행 (개발자용)
+
+#### GUI 버전 (PyQt6)
+```bash
+# 의존성 설치
+pip3 install PyQt6 pandas openpyxl numpy
+
+# 실행
+python3 class_assigner_gui_qt.py
+```
+
+#### 콘솔 버전
+```bash
+# 의존성 설치
+pip3 install pandas openpyxl numpy
+
+# 실행 (같은 폴더에 입력 파일 필요)
+python3 class_assigner.py
+```
+
+### 필요한 파일
 ```
 01 5학년_가상 명단.xlsx    # 5학년 7개 반 학생 명단
 02 분반 합반할 학생 규칙.xlsx  # 분반/합반 규칙
 ```
 
-### 2. 프로그램 실행
-```bash
-python3 class_assigner.py
-```
-
-### 3. 결과 확인
+### 결과 파일
 ```
 03 6학년 배정 결과.xlsx     # 6학년 7개 반 배정 결과 + 요약
 ```
+
+---
+
+## 배포 방법
+
+### 실행 파일 빌드하기
+
+프로그램을 실행 파일로 빌드하면 Python 설치 없이 사용 가능합니다.
+
+#### macOS에서 .app 빌드
+
+```bash
+# 1. 의존성 설치
+pip3 install -r requirements.txt
+pip3 install pyinstaller
+
+# 2. 빌드 스크립트 실행
+chmod +x build.sh
+./build.sh
+
+# 3. 결과
+# dist/학급편성.app 생성 (macOS 전용)
+```
+
+#### Windows에서 .exe 빌드
+
+```cmd
+REM 1. 의존성 설치
+pip install -r requirements.txt
+pip install pyinstaller
+
+REM 2. 빌드 실행
+pyinstaller --onefile --windowed --name="학급편성" class_assigner_gui_qt.py
+
+REM 3. 결과
+REM dist\학급편성.exe 생성 (Windows 전용)
+```
+
+### 배포 시 주의사항
+
+1. **플랫폼 독립성**
+   - macOS .app → macOS에서만 실행
+   - Windows .exe → Windows에서만 실행
+   - 각 OS에서 별도로 빌드 필요
+
+2. **파일 구성**
+   ```
+   배포 폴더/
+   ├── 학급편성.app (또는 .exe)
+   ├── 01 5학년_가상 명단.xlsx (샘플)
+   ├── 02 분반 합반할 학생 규칙.xlsx (샘플)
+   └── README.md (사용 설명서)
+   ```
+
+3. **사용자 안내**
+   - 실행 파일을 더블클릭하면 자동으로 같은 폴더의 파일을 찾음
+   - 파일이 없으면 파일 선택 대화상자가 나타남
+   - 결과는 입력 파일과 같은 폴더에 저장됨
 
 ---
 
@@ -303,12 +392,42 @@ $ python3 class_assigner.py
 
 ## 기술 스택
 
-- **언어**: Python 3.x
-- **라이브러리**:
-  - `pandas`: 데이터 처리
+### 핵심 엔진
+- **언어**: Python 3.9+
+- **데이터 처리**:
+  - `pandas`: 데이터 처리 및 분석
   - `openpyxl`: Excel 파일 읽기/쓰기
   - `numpy`: 수치 계산
   - `dataclasses`: 데이터 구조
+
+### GUI (사용자 인터페이스)
+- **PyQt6**: 크로스플랫폼 GUI 프레임워크
+  - macOS, Windows 네이티브 룩앤필 지원
+  - 다크모드 자동 대응
+  - QThread 기반 백그라운드 처리
+
+### 배포
+- **PyInstaller**: 실행 파일 생성
+  - macOS: .app 번들
+  - Windows: .exe 실행 파일
+
+### 프로젝트 구조
+```
+Class_Assignment 2/
+├── class_assigner.py              # 핵심 배정 엔진 (콘솔)
+├── class_assigner_gui_qt.py       # PyQt6 GUI 버전 ⭐
+├── build.sh                       # macOS 빌드 스크립트
+├── requirements.txt               # Python 의존성
+├── 01 5학년_가상 명단.xlsx         # 샘플 입력 파일
+├── 02 분반 합반할 학생 규칙.xlsx    # 샘플 규칙 파일
+├── dist/
+│   └── 학급편성.app               # 빌드된 실행 파일
+└── tests/                         # 단위 테스트
+    ├── test_validate_rules.py
+    ├── test_phase1_apply_rules.py
+    ├── test_phase2_distribute_special_needs.py
+    └── test_phase5_balance_remaining.py
+```
 
 ---
 
@@ -336,7 +455,26 @@ pytest tests/test_validate_rules.py::test_conflict_two_persons -v
 | `test_validate_rules.py` | 14개 | `_validate_rules` | 100% | [TEST_RESULTS.md](tests/TEST_RESULTS.md) |
 | `test_phase1_apply_rules.py` | 13개 | `phase1_apply_rules` | 100% | [TEST_RESULTS_PHASE1.md](tests/TEST_RESULTS_PHASE1.md) |
 | `test_phase2_distribute_special_needs.py` | 13개 | `phase2_distribute_special_needs` | 100% | [TEST_RESULTS_PHASE2.md](tests/TEST_RESULTS_PHASE2.md) |
-| **합계** | **40개** | **3개 함수** | **100%** | - |
+| `test_phase5_balance_remaining.py` | 14개 | `phase5_balance_remaining` | 100% | [TEST_RESULTS_PHASE5.md](tests/TEST_RESULTS_PHASE5.md) |
+| **합계** | **54개** | **4개 함수** | **100%** | - |
+
+---
+
+## 버전 히스토리
+
+### v2.0 (2025-11-21)
+- ✨ PyQt6 기반 GUI 추가 (macOS/Windows 지원)
+- 🎨 다크모드 자동 대응
+- 📦 실행 파일 빌드 지원 (.app, .exe)
+- 🔧 백그라운드 스레드 처리로 UI 응답성 개선
+- 📝 Excel 결과 파일에 색상 표시 추가 (분반/합반 학생)
+
+### v1.0 (2025-11-20)
+- 🎉 최초 릴리스
+- ✅ 6단계 배정 알고리즘 구현
+- ✅ 분반/합반 규칙 100% 준수
+- ✅ 균등 배분 (학생 수, 성비, 성적, 난이도)
+- ✅ 단위 테스트 40개 작성 (커버리지 100%)
 
 ---
 
@@ -350,5 +488,5 @@ pytest tests/test_validate_rules.py::test_conflict_two_persons -v
 
 프로그램 사용 중 문제가 발생하면 개발자에게 문의하세요.
 
-**개발일**: 2025년 11월
-**버전**: 1.0
+**최종 업데이트**: 2025년 11월 21일
+**현재 버전**: 2.0

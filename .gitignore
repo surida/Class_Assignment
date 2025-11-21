@@ -1,9 +1,35 @@
-# 배정 결과 파일 제외
-03 6학년 배정 결과.xlsx
+# PyInstaller build artifacts
+dist/
+build/
+*.spec
 
-# ZIP 파일 제외
-*.zip
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
 
-# Excel 임시 파일 제외
-~$*.xlsx
-.~*.xlsx
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Output files (optional - comment out if you want to track them)
+# 03 6학년 배정 결과.xlsx
