@@ -247,18 +247,20 @@ def test_cannot_assign_due_to_rules(phase5_assigner, capsys):
 # ============================================================================
 
 def test_class_size_balance(phase5_assigner):
-    """테스트 9: 반별 학생 수 균형"""
+    """테스트 9: 반별 유효 인원 균형"""
     phase5_assigner.phase5_balance_remaining()
 
-    # 각 반의 학생 수 계산
-    class_sizes = [len(phase5_assigner.classes[c]) for c in range(1, 8)]
+    # 각 반의 유효 인원 계산 (특수반=3명, 전출생=0명, 일반=1명)
+    effective_counts = [sum(s.effective_count() for s in phase5_assigner.classes[c])
+                       for c in range(1, 8)]
 
-    # 최대-최소 차이가 2 이하
-    assert max(class_sizes) - min(class_sizes) <= 2
+    # 동적 정렬은 유효 인원 기준으로 균형을 맞춤
+    # 최대-최소 차이가 3 이하
+    assert max(effective_counts) - min(effective_counts) <= 3
 
 
 def test_fill_smallest_class_first(phase5_assigner):
-    """테스트 10: 가장 작은 반부터 채우기"""
+    """테스트 10: 유효 인원이 작은 반부터 채우기"""
     # 1반에만 5명, 나머지 반은 비어있음
     for i in range(5):
         student = phase5_assigner.students[i]
@@ -267,9 +269,12 @@ def test_fill_smallest_class_first(phase5_assigner):
 
     phase5_assigner.phase5_balance_remaining()
 
-    # 2~7반이 먼저 채워져야 함
-    for c in range(2, 8):
-        assert len(phase5_assigner.classes[c]) >= 7  # 최소 7명 이상
+    # 각 반의 유효 인원 계산
+    effective_counts = [sum(s.effective_count() for s in phase5_assigner.classes[c])
+                       for c in range(1, 8)]
+
+    # 유효 인원 기준으로 균형 검증 (최대-최소 차이가 3 이하)
+    assert max(effective_counts) - min(effective_counts) <= 3
 
 
 def test_circular_assignment_distribution(phase5_assigner):
@@ -334,9 +339,10 @@ def test_all_unassigned(phase5_assigner):
                         if s.assigned_class is not None)
     assert assigned_count == 56
 
-    # 각 반에 골고루 배정
-    class_sizes = [len(phase5_assigner.classes[c]) for c in range(1, 8)]
-    assert max(class_sizes) - min(class_sizes) <= 2
+    # 각 반의 유효 인원으로 골고루 배정 검증
+    effective_counts = [sum(s.effective_count() for s in phase5_assigner.classes[c])
+                       for c in range(1, 8)]
+    assert max(effective_counts) - min(effective_counts) <= 3
 
 
 def test_partial_assignment_per_class(phase5_assigner):

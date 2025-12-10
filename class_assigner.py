@@ -227,6 +227,11 @@ class ClassAssigner:
         """반의 유효 인원 계산 (특수반=3명, 전출생=0명, 일반=1명)"""
         return sum(s.effective_count() for s in self.classes[class_num])
 
+    def _get_effective_gender_count(self, class_num: int, gender: str) -> int:
+        """반의 특정 성별 유효 인원 계산"""
+        return sum(s.effective_count() for s in self.classes[class_num]
+                   if s.성별 == gender)
+
     def _can_assign(self, student: Student, class_num: int) -> bool:
         """학생을 특정 반에 배정할 수 있는지 검사 (분반 규칙 체크)"""
         # 이미 해당 반에 있는 학생들의 이름 목록
@@ -433,54 +438,56 @@ class ClassAssigner:
         random.shuffle(class_order)
         print(f"   - 기존 반 처리 순서: {class_order}")
 
-        # 2. 새 반 배정 순서는 1~7 고정
-        target_classes = list(range(1, 8))
-
-        # 3. 전역 인덱스 (순환 배정 위치 추적)
-        global_index = 0
-
-        # 4. 각 기존 반별로 남녀 교차 처리
+        # 2. 각 기존 반별로 남녀 교차 처리
         for original_class in class_order:
-            # 4-1. 해당 반의 남학생 배정
+            # 2-1. 해당 반의 남학생 배정
             males = [s for s in self.students
                     if s.원반 == original_class and s.성별 == '남'
                     and s.assigned_class is None]
             males.sort(key=lambda s: s.점수, reverse=True)
 
-            for student in males:
-                target_class = target_classes[global_index % 7]
+            # 남학생 배정 시작 시점에 유효 인원 기준으로 반 정렬
+            # 유효 인원이 같으면 남학생이 적은 반 우선
+            target_classes = sorted(range(1, 8),
+                                   key=lambda c: (self._get_effective_count(c),
+                                                 self._get_effective_gender_count(c, '남')))
+
+            for i, student in enumerate(males):
+                target_class = target_classes[i % 7]
                 if self._can_assign(student, target_class):
                     self._assign_student(student, target_class, lock=False)
-                    global_index += 1
                 else:
                     # 규칙 충돌 시 다음 반들 순서대로 시도
                     for offset in range(1, 7):
-                        alt_class = target_classes[(global_index + offset) % 7]
+                        alt_class = target_classes[(i + offset) % 7]
                         if self._can_assign(student, alt_class):
                             self._assign_student(student, alt_class, lock=False)
-                            global_index += 1
                             break
                     else:
                         print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
 
-            # 4-2. 해당 반의 여학생 배정 (바로 이어서)
+            # 2-2. 해당 반의 여학생 배정
             females = [s for s in self.students
                       if s.원반 == original_class and s.성별 == '여'
                       and s.assigned_class is None]
             females.sort(key=lambda s: s.점수, reverse=True)
 
-            for student in females:
-                target_class = target_classes[global_index % 7]
+            # 여학생 배정 시작 시점에 다시 유효 인원 기준으로 반 정렬
+            # 유효 인원이 같으면 여학생이 적은 반 우선
+            target_classes = sorted(range(1, 8),
+                                   key=lambda c: (self._get_effective_count(c),
+                                                 self._get_effective_gender_count(c, '여')))
+
+            for i, student in enumerate(females):
+                target_class = target_classes[i % 7]
                 if self._can_assign(student, target_class):
                     self._assign_student(student, target_class, lock=False)
-                    global_index += 1
                 else:
                     # 규칙 충돌 시 다음 반들 순서대로 시도
                     for offset in range(1, 7):
-                        alt_class = target_classes[(global_index + offset) % 7]
+                        alt_class = target_classes[(i + offset) % 7]
                         if self._can_assign(student, alt_class):
                             self._assign_student(student, alt_class, lock=False)
-                            global_index += 1
                             break
                     else:
                         print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
@@ -638,8 +645,11 @@ class ClassAssigner:
             summary_data.append({
                 '반': f'6-{class_num}',
                 '학생수': len(students),
+                '유효인원': sum(s.effective_count() for s in students),
                 '남학생수': sum(1 for s in students if s.성별 == '남'),
                 '여학생수': sum(1 for s in students if s.성별 == '여'),
+                '유효남학생': sum(s.effective_count() for s in students if s.성별 == '남'),
+                '유효여학생': sum(s.effective_count() for s in students if s.성별 == '여'),
                 '난이도합': sum(s.난이도 for s in students),
                 '특수반수': sum(1 for s in students if s.특수반),
                 '전출생수': sum(1 for s in students if s.전출)
