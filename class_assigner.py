@@ -633,6 +633,15 @@ class ClassAssigner:
 
         summary_data = []
 
+        # 기준 학년 설정 (학생 데이터에서 가져옴, 없으면 기본값 5)
+        base_grade = 5
+        if self.students:
+            # 가장 많은 학년을 기준으로 설정
+            grades = [s.학년 for s in self.students]
+            base_grade = max(set(grades), key=grades.count)
+        
+        target_grade = base_grade + 1
+
         # 각 반별 시트 생성
         for class_num in range(1, self.target_class_count + 1):
             students = self.classes[class_num]
@@ -644,7 +653,7 @@ class ClassAssigner:
             data = []
             for idx, s in enumerate(students, 1):
                 data.append({
-                    '학년': 6,
+                    '학년': target_grade,
                     '반': class_num,
                     '번호': idx,  # 새 반에서의 번호
                     '이름': s.이름,
@@ -662,7 +671,7 @@ class ClassAssigner:
             df = pd.DataFrame(data)
 
             # 시트 추가
-            ws = wb.create_sheet(title=f'6-{class_num}')
+            ws = wb.create_sheet(title=f'{target_grade}-{class_num}')
             for r in dataframe_to_rows(df, index=False, header=True):
                 ws.append(r)
 
@@ -727,7 +736,7 @@ class ClassAssigner:
 
             # 요약 데이터 수집
             summary_data.append({
-                '반': f'6-{class_num}',
+                '반': f'{target_grade}-{class_num}',
                 '학생수': len(students),
                 '유효인원': sum(s.effective_count() for s in students),
                 '남학생수': sum(1 for s in students if s.성별 == '남'),

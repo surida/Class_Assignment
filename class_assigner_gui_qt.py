@@ -191,8 +191,8 @@ class ClassAssignerGUI(QMainWindow):
         layout.setSpacing(10)
         widget.setLayout(layout)
 
-        # 5학년 명단 파일
-        student_label = QLabel("📚 5학년 명단 파일:")
+        # 학생 명단 파일
+        student_label = QLabel("📚 학생 명단 파일:")
         student_label.setFont(QFont("", 12, QFont.Weight.Bold))
         layout.addWidget(student_label)
 
@@ -280,7 +280,7 @@ class ClassAssignerGUI(QMainWindow):
         layout.addSpacing(15)
 
         # 진급 학급 수 입력
-        count_label = QLabel("🔢 진급할 학급 수 (내년 반 개수):")
+        count_label = QLabel("진급 학급 수 (내년 반 개수):")
         count_label.setFont(QFont("", 12, QFont.Weight.Bold))
         layout.addWidget(count_label)
 
@@ -312,9 +312,9 @@ class ClassAssignerGUI(QMainWindow):
 
     def load_default_files(self):
         """기본 파일 경로 로드"""
-        base_path = get_base_path()
-        default_student = os.path.join(base_path, '01 5학년_가상 명단.xlsx')
-        default_rules = os.path.join(base_path, '02 분반 합반할 학생 규칙.xlsx')
+        base_dir = os.getcwd()
+        default_student = os.path.join(base_dir, "01 가상 명단.xlsx")
+        default_rules = os.path.join(base_dir, "02 분반 합반할 학생 규칙.xlsx")
 
         if os.path.exists(default_student):
             self.student_file_path = default_student
@@ -385,7 +385,7 @@ class ClassAssignerGUI(QMainWindow):
         """학급 편성 실행"""
         # 파일 경로 확인
         if not self.student_file_path or not os.path.exists(self.student_file_path):
-            QMessageBox.critical(self, "오류", "5학년 명단 파일을 선택해주세요.")
+            QMessageBox.critical(self, "오류", "학생 명단 파일을 선택해주세요.")
             return
 
         if not self.rules_file_path or not os.path.exists(self.rules_file_path):
@@ -394,7 +394,7 @@ class ClassAssignerGUI(QMainWindow):
 
         # 출력 파일 경로
         output_dir = os.path.dirname(self.student_file_path)
-        output_file = os.path.join(output_dir, '03 6학년 배정 결과.xlsx')
+        output_file = os.path.join(output_dir, '03 배정 결과.xlsx')
 
         # UI 비활성화
         self.execute_btn.setEnabled(False)
