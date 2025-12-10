@@ -31,5 +31,7 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Output files (optional - comment out if you want to track them)
-# 03 6학년 배정 결과.xlsx
+# Output files - exclude from git
+03 6학년 배정 결과.xlsx
+안간에게 보낼 분반 자료.zip
+**/~$*.xlsx
