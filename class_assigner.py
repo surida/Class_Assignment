@@ -590,24 +590,23 @@ class ClassAssigner:
             # 이름 가나다순 정렬
             students.sort(key=lambda s: s.이름)
 
-            # 번호 재부여
-            for idx, student in enumerate(students, 1):
-                student.원번호 = idx
-
             # 데이터프레임 생성
             data = []
-            for s in students:
+            for idx, s in enumerate(students, 1):
                 data.append({
                     '학년': 6,
                     '반': class_num,
-                    '번호': s.원번호,
+                    '번호': idx,  # 새 반에서의 번호
                     '이름': s.이름,
                     '성별': s.성별,
                     '점수': s.점수,
                     '특수반': 1 if s.특수반 else '',
                     '전출': 1 if s.전출 else '',
                     '난이도': s.난이도 if s.난이도 > 0 else '',
-                    '비고': s.비고
+                    '비고': s.비고,
+                    '원학년': s.학년,
+                    '원반': s.원반,
+                    '원번호': s.원번호  # 원래 번호 유지
                 })
 
             df = pd.DataFrame(data)
