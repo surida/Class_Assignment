@@ -8,7 +8,8 @@ import os
 import threading
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QTextEdit, QFileDialog, QMessageBox, QFrame
+    QPushButton, QLabel, QTextEdit, QFileDialog, QMessageBox, QFrame,
+    QSpinBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
@@ -20,17 +21,19 @@ class AssignmentThread(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, str)  # success, message
 
-    def __init__(self, student_file, rules_file, output_file):
+    def __init__(self, student_file, rules_file, output_file, target_class_count):
         super().__init__()
         self.student_file = student_file
         self.rules_file = rules_file
         self.output_file = output_file
+        self.target_class_count = target_class_count
 
     def run(self):
         """학급 편성 실행"""
         try:
             self.log_signal.emit("=" * 70)
             self.log_signal.emit("🎓 자동 학급 편성 시작")
+            self.log_signal.emit(f"➡️ 목표 학급 수: {self.target_class_count}개 반")
             self.log_signal.emit("=" * 70)
             self.log_signal.emit("")
 
@@ -43,7 +46,8 @@ class AssignmentThread(QThread):
             with contextlib.redirect_stdout(output_buffer):
                 assigner = ClassAssigner(
                     student_file=self.student_file,
-                    rules_file=self.rules_file
+                    rules_file=self.rules_file,
+                    target_class_count=self.target_class_count
                 )
                 assigner.run(output_file=self.output_file)
 
@@ -272,6 +276,38 @@ class ClassAssignerGUI(QMainWindow):
 
         layout.addLayout(rules_layout)
 
+        # 간격
+        layout.addSpacing(15)
+
+        # 진급 학급 수 입력
+        count_label = QLabel("🔢 진급할 학급 수 (내년 반 개수):")
+        count_label.setFont(QFont("", 12, QFont.Weight.Bold))
+        layout.addWidget(count_label)
+
+        count_layout = QHBoxLayout()
+        self.class_count_spin = QSpinBox()
+        self.class_count_spin.setRange(1, 20)  # 1반부터 20반까지 허용
+        self.class_count_spin.setValue(7)      # 기본값 7
+        self.class_count_spin.setMinimumHeight(35)
+        self.class_count_spin.setFont(QFont("", 11))
+        self.class_count_spin.setStyleSheet("""
+            QSpinBox {
+                padding: 5px;
+                border: 1px solid #CCCCCC;
+                border-radius: 3px;
+            }
+        """)
+        
+        # 설명 라벨
+        desc_label = QLabel(" 개 반으로 편성")
+        desc_label.setFont(QFont("", 11))
+        
+        count_layout.addWidget(self.class_count_spin)
+        count_layout.addWidget(desc_label)
+        count_layout.addStretch(1)  # 왼쪽 정렬
+        
+        layout.addLayout(count_layout)
+
         return widget
 
     def load_default_files(self):
@@ -365,10 +401,12 @@ class ClassAssignerGUI(QMainWindow):
         self.clear_log()
 
         # 백그라운드 스레드 생성 및 실행
+        target_count = self.class_count_spin.value()
         self.assignment_thread = AssignmentThread(
             self.student_file_path,
             self.rules_file_path,
-            output_file
+            output_file,
+            target_count
         )
         self.assignment_thread.log_signal.connect(self.log_message)
         self.assignment_thread.finished_signal.connect(self.on_assignment_finished)

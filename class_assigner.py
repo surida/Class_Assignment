@@ -66,11 +66,12 @@ class Student:
 class ClassAssigner:
     """학급 편성 시스템"""
 
-    def __init__(self, student_file: str, rules_file: str):
+    def __init__(self, student_file: str, rules_file: str, target_class_count: int = 7):
         self.student_file = student_file
         self.rules_file = rules_file
+        self.target_class_count = target_class_count
         self.students: List[Student] = []
-        self.classes: Dict[int, List[Student]] = {i: [] for i in range(1, 8)}
+        self.classes: Dict[int, List[Student]] = {i: [] for i in range(1, self.target_class_count + 1)}
 
         # 규칙
         self.separation_rules: Dict[str, Set[str]] = defaultdict(set)  # 분반 규칙
@@ -86,8 +87,30 @@ class ClassAssigner:
         print("\n📚 Step 0: 학생 데이터 로드 중...")
 
         all_students = []
-        for sheet_name in ['5-1', '5-2', '5-3', '5-4', '5-5', '5-6', '5-7']:
-            df = pd.read_excel(self.student_file, sheet_name=sheet_name)
+        try:
+            xl = pd.ExcelFile(self.student_file)
+            sheet_names = xl.sheet_names
+            print(f"   ℹ️  감지된 시트: {sheet_names}")
+        except Exception as e:
+            print(f"   ❌ 파일 읽기 오류: {e}")
+            raise
+
+        for sheet_name in sheet_names:
+            try:
+                # 숫자나 '-'가 포함된 시트만 반 정보로 간주 (필요 시 로직 강화 가능)
+                # 현재는 모든 시트를 시도하되, 데이터 구조가 안 맞으면 스킵하는 방식이 안전할 수 있음
+                df = pd.read_excel(self.student_file, sheet_name=sheet_name)
+                
+                # 필수 컬럼 확인
+                required_cols = ['학년', '반', '번호', '이름']
+                if not all(col in df.columns for col in required_cols):
+                    print(f"   ⚠️  Skipping sheet '{sheet_name}': 필수 컬럼 누락")
+                    continue
+
+
+            except Exception as e:
+                print(f"   ⚠️  Error reading sheet '{sheet_name}': {e}")
+                continue
 
             for _, row in df.iterrows():
                 student = Student(
@@ -256,7 +279,7 @@ class ClassAssigner:
         # 분반 규칙 검증
         if not self._can_assign(student, class_num):
             # 배정할 수 없는 경우 - 다른 반 찾기
-            for alternative_class in range(1, 8):
+            for alternative_class in range(1, self.target_class_count + 1):
                 if alternative_class != class_num and self._can_assign(student, alternative_class):
                     class_num = alternative_class
                     break
@@ -306,7 +329,7 @@ class ClassAssigner:
             # student1이 미배정이면 먼저 배정
             if student1.assigned_class is None:
                 # 유효 인원이 적은 반 우선, 같으면 해당 성별이 적은 반 우선
-                target_class = min(range(1, 8),
+                target_class = min(range(1, self.target_class_count + 1),
                                   key=lambda c: (self._get_effective_count(c),
                                                 self._get_effective_gender_count(c, student1.성별)))
                 self._assign_student(student1, target_class, lock=True)
@@ -318,7 +341,7 @@ class ClassAssigner:
                 if student2 and student2.assigned_class is None:
                     # student1과 다른 반 중 유효 인원이 가장 적은 반 선택
                     # 유효 인원이 같으면 해당 성별이 적은 반 우선
-                    available_classes = [c for c in range(1, 8) if c != student1.assigned_class]
+                    available_classes = [c for c in range(1, self.target_class_count + 1) if c != student1.assigned_class]
                     target_class = min(available_classes,
                                      key=lambda c: (self._get_effective_count(c),
                                                    self._get_effective_gender_count(c, student2.성별)))
@@ -343,13 +366,13 @@ class ClassAssigner:
 
         # 각 반의 현재 특수반 학생 수
         special_count_per_class = {c: sum(1 for s in self.classes[c] if s.특수반)
-                                  for c in range(1, 8)}
+                                  for c in range(1, self.target_class_count + 1)}
 
         # 특수반 학생을 유효 인원이 적은 반부터 배정 (분반 규칙 고려)
         for student in unassigned_special:
             # 배정 가능한 반 중 유효 인원이 가장 적은 반 선택
             # (동점인 경우 특수반 학생이 적은 반 우선)
-            valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
+            valid_classes = [c for c in range(1, self.target_class_count + 1) if self._can_assign(student, c)]
             if valid_classes:
                 target_class = min(valid_classes,
                                  key=lambda c: (self._get_effective_count(c), special_count_per_class[c]))
@@ -385,7 +408,7 @@ class ClassAssigner:
             # 배정되지 않은 학생들을 다른 반에 배정
             for student in unassigned:
                 # 동명이인이 없고 배정 가능한 반 중 유효 인원이 가장 적은 반 선택
-                valid_classes = [c for c in range(1, 8)
+                valid_classes = [c for c in range(1, self.target_class_count + 1)
                                if c not in used_classes and self._can_assign(student, c)]
 
                 if valid_classes:
@@ -417,11 +440,11 @@ class ClassAssigner:
 
         # 각 반의 현재 난이도 합
         difficulty_sum = {c: sum(s.난이도 for s in self.classes[c])
-                         for c in range(1, 8)}
+                         for c in range(1, self.target_class_count + 1)}
 
         for student in unassigned:
             # 배정 가능한 반 중 현재 난이도 합이 가장 낮은 반에 배정
-            valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
+            valid_classes = [c for c in range(1, self.target_class_count + 1) if self._can_assign(student, c)]
             if valid_classes:
                 target_class = min(valid_classes,
                                  key=lambda c: difficulty_sum[c])
@@ -445,13 +468,13 @@ class ClassAssigner:
 
         print(f"   - 배정 대상: {len(unassigned)}명")
 
-        # 1. 기존 반 처리 순서 랜덤 생성
-        class_order = list(range(1, 8))
-        random.shuffle(class_order)
-        print(f"   - 기존 반 처리 순서: {class_order}")
+        # 1. 기존 반 처리 순서 랜덤 생성 (원본 반 수는 알 수 없으므로 unique 값 추출)
+        original_classes = sorted(list(set(s.원반 for s in self.students)))
+        random.shuffle(original_classes)
+        print(f"   - 기존 반 처리 순서: {original_classes}")
 
         # 2. 각 기존 반별로 남녀 교차 처리
-        for original_class in class_order:
+        for original_class in original_classes:
             # 2-1. 해당 반의 남학생 배정
             males = [s for s in self.students
                     if s.원반 == original_class and s.성별 == '남'
@@ -460,18 +483,18 @@ class ClassAssigner:
 
             # 남학생 배정 시작 시점에 유효 인원 기준으로 반 정렬
             # 유효 인원이 같으면 남학생이 적은 반 우선
-            target_classes = sorted(range(1, 8),
+            target_classes = sorted(range(1, self.target_class_count + 1),
                                    key=lambda c: (self._get_effective_count(c),
                                                  self._get_effective_gender_count(c, '남')))
 
             for i, student in enumerate(males):
-                target_class = target_classes[i % 7]
+                target_class = target_classes[i % self.target_class_count]
                 if self._can_assign(student, target_class):
                     self._assign_student(student, target_class, lock=False)
                 else:
                     # 규칙 충돌 시 다음 반들 순서대로 시도
-                    for offset in range(1, 7):
-                        alt_class = target_classes[(i + offset) % 7]
+                    for offset in range(1, self.target_class_count):
+                        alt_class = target_classes[(i + offset) % self.target_class_count]
                         if self._can_assign(student, alt_class):
                             self._assign_student(student, alt_class, lock=False)
                             break
@@ -486,18 +509,18 @@ class ClassAssigner:
 
             # 여학생 배정 시작 시점에 다시 유효 인원 기준으로 반 정렬
             # 유효 인원이 같으면 여학생이 적은 반 우선
-            target_classes = sorted(range(1, 8),
+            target_classes = sorted(range(1, self.target_class_count + 1),
                                    key=lambda c: (self._get_effective_count(c),
                                                  self._get_effective_gender_count(c, '여')))
 
             for i, student in enumerate(females):
-                target_class = target_classes[i % 7]
+                target_class = target_classes[i % self.target_class_count]
                 if self._can_assign(student, target_class):
                     self._assign_student(student, target_class, lock=False)
                 else:
                     # 규칙 충돌 시 다음 반들 순서대로 시도
-                    for offset in range(1, 7):
-                        alt_class = target_classes[(i + offset) % 7]
+                    for offset in range(1, self.target_class_count):
+                        alt_class = target_classes[(i + offset) % self.target_class_count]
                         if self._can_assign(student, alt_class):
                             self._assign_student(student, alt_class, lock=False)
                             break
@@ -608,8 +631,10 @@ class ClassAssigner:
 
         summary_data = []
 
+        summary_data = []
+
         # 각 반별 시트 생성
-        for class_num in range(1, 8):
+        for class_num in range(1, self.target_class_count + 1):
             students = self.classes[class_num]
 
             # 이름 가나다순 정렬

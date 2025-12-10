@@ -22,6 +22,7 @@ def mock_assigner():
     assigner = ClassAssigner.__new__(ClassAssigner)
     assigner.separation_rules = defaultdict(set)
     assigner.together_groups = []
+    assigner.target_class_count = 7
     assigner.classes = {i: [] for i in range(1, 8)}
     assigner.students = []
     return assigner
