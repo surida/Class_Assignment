@@ -11,6 +11,8 @@ import random
 from collections import defaultdict, Counter
 import openpyxl
 from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
+from openpyxl.comments import Comment
 import os
 import sys
 import tkinter as tk
@@ -548,7 +550,15 @@ class ClassAssigner:
         """결과를 엑셀 파일로 출력"""
         print("\n📊 결과 생성 중...")
 
-        from openpyxl.styles import PatternFill
+        # 스타일 정의
+        THIN_BORDER = Border(left=Side(style='thin'), 
+                             right=Side(style='thin'), 
+                             top=Side(style='thin'), 
+                             bottom=Side(style='thin'))
+        
+        HEADER_FONT = Font(bold=True)
+        HEADER_FILL = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid") # 연한 회색
+        CENTER_ALIGN = Alignment(horizontal='center', vertical='center')
 
         # 색상 팔레트 (30개 - 분반 쌍별 구분, 부족하면 재사용)
         COLOR_PALETTE = [
@@ -570,6 +580,9 @@ class ClassAssigner:
 
         # 분반 쌍별 색상 매핑 생성 (여러 쌍에 속한 학생은 리스트로 저장)
         student_to_color = {}
+        # 분반 상대방 정보 저장 (메모용)
+        student_to_targets = defaultdict(set)
+        
         for idx, (student1, student2) in enumerate(self.separation_pairs):
             color = COLOR_PALETTE[idx % len(COLOR_PALETTE)]
             fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
@@ -578,10 +591,12 @@ class ClassAssigner:
             if student1 not in student_to_color:
                 student_to_color[student1] = []
             student_to_color[student1].append(fill)
+            student_to_targets[student1].add(student2)
 
             if student2 not in student_to_color:
                 student_to_color[student2] = []
             student_to_color[student2].append(fill)
+            student_to_targets[student2].add(student1)
 
         # 디버깅: 색상 적용 대상 출력
         print(f"   📌 합반 규칙 학생: {sorted(together_students)}")
@@ -626,29 +641,64 @@ class ClassAssigner:
             for r in dataframe_to_rows(df, index=False, header=True):
                 ws.append(r)
 
-            # 색상 적용 (헤더는 제외, 데이터 행만)
+            # 스타일 적용 (헤더)
+            for cell in ws[1]:
+                cell.font = HEADER_FONT
+                cell.fill = HEADER_FILL
+                cell.alignment = CENTER_ALIGN
+                cell.border = THIN_BORDER
+
+            # 데이터 행 스타일 적용
             for row_idx, student in enumerate(students, start=2):  # 2부터 시작 (1은 헤더)
+                # 기본 스타일: 테두리 및 정렬
+                for col_idx in range(1, 14): # 13개 열
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    cell.border = THIN_BORDER
+                    
+                    # 가운데 정렬이 필요한 컬럼
+                    # 학년(1), 반(2), 번호(3), 이름(4), 성별(5), 특수반(7), 전출(8), 원학년(11), 원반(12), 원번호(13)
+                    if col_idx in [1, 2, 3, 4, 5, 7, 8, 11, 12, 13]:
+                        cell.alignment = CENTER_ALIGN
+
+                # 색상 및 메모 적용
                 # 합반 규칙 학생인지 확인
                 if student.이름 in together_students:
                     # 합반: 모든 셀에 동일한 파란색
-                    for col_idx in range(1, 11):  # 10개 열 (학년~비고)
+                    for col_idx in range(1, 14):
                         ws.cell(row=row_idx, column=col_idx).fill = TOGETHER_FILL
 
                 # 분반 규칙 학생인지 확인 (쌍별 색상)
                 elif student.이름 in student_to_color:
                     fills = student_to_color[student.이름]
+                    
+                    # 메모 추가 (이름 셀인 4번 컬럼에)
+                    targets = student_to_targets[student.이름]
+                    target_info_list = []
+                    for target_name in targets:
+                        target_student = self._find_student_by_name(target_name)
+                        if target_student and target_student.assigned_class:
+                            target_info_list.append(f"{target_name}({target_student.assigned_class}반)")
+                        else:
+                            target_info_list.append(f"{target_name}(미배정)")
+                    
+                    target_str = ", ".join(sorted(target_info_list))
+                    name_cell = ws.cell(row=row_idx, column=4)
+                    name_cell.comment = Comment(f"분반 대상: {target_str}", "AutoAssigner")
 
                     if len(fills) == 1:
                         # 1개 쌍: 모든 셀에 동일한 색상
-                        for col_idx in range(1, 11):
+                        for col_idx in range(1, 14):
                             ws.cell(row=row_idx, column=col_idx).fill = fills[0]
                     else:
                         # 2개 이상 쌍: 홀수 셀과 짝수 셀에 번갈아가며 색상 적용
-                        for col_idx in range(1, 11):
-                            # 홀수 셀(1,3,5,7,9): 첫 번째 색상
-                            # 짝수 셀(2,4,6,8,10): 두 번째 색상
+                        for col_idx in range(1, 14):
+                            # 홀수 셀: 첫 번째 색상, 짝수 셀: 두 번째 색상
                             fill_idx = (col_idx - 1) % len(fills)
                             ws.cell(row=row_idx, column=col_idx).fill = fills[fill_idx]
+                            
+            # 컬럼 너비 자동 조정 (간단하게 고정값 적용)
+            ws.column_dimensions['D'].width = 12 # 이름
+            ws.column_dimensions['J'].width = 20 # 비고
 
             # 요약 데이터 수집
             summary_data.append({
@@ -671,6 +721,39 @@ class ClassAssigner:
         ws_summary = wb.create_sheet(title='요약', index=0)
         for r in dataframe_to_rows(summary_df, index=False, header=True):
             ws_summary.append(r)
+            
+        # 요약 시트 스타일
+        for cell in ws_summary[1]:
+            cell.font = HEADER_FONT
+            cell.fill = HEADER_FILL
+            cell.alignment = CENTER_ALIGN
+            cell.border = THIN_BORDER
+            
+        for row in ws_summary.iter_rows(min_row=2):
+            for cell in row:
+                cell.border = THIN_BORDER
+                cell.alignment = CENTER_ALIGN
+        
+        ws_summary.column_dimensions['A'].width = 10
+        
+        # 범례(Legend) 추가
+        legend_start_row = len(summary_data) + 5
+        ws_summary.cell(row=legend_start_row, column=1, value="[범례]").font = Font(bold=True, size=12)
+        
+        # 합반 범례
+        ws_summary.cell(row=legend_start_row+1, column=1, value="합반 규칙 적용").border = THIN_BORDER
+        guide_cell = ws_summary.cell(row=legend_start_row+1, column=2, value="하늘색 배경")
+        guide_cell.fill = TOGETHER_FILL
+        guide_cell.border = THIN_BORDER
+        
+        # 분반 범례
+        ws_summary.cell(row=legend_start_row+2, column=1, value="분반 규칙 적용").border = THIN_BORDER
+        guide_cell = ws_summary.cell(row=legend_start_row+2, column=2, value="기타 색상 배경")
+        guide_cell.fill = PatternFill(start_color=COLOR_PALETTE[0], end_color=COLOR_PALETTE[0], fill_type="solid")
+        guide_cell.border = THIN_BORDER
+        guide_cell.comment = Comment("마우스를 올리면 누구와 분반인지 표시됩니다.", "AutoAssigner")
+        
+        ws_summary.cell(row=legend_start_row+2, column=3, value="← 이름에 마우스를 올리면 대상 확인 가능")
 
         # 파일 저장
         wb.save(output_file)
