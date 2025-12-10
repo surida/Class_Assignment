@@ -301,17 +301,27 @@ class ClassAssigner:
             if not student1:
                 continue
 
-            if student1.assigned_class is not None:
-                # 이미 배정됨 - 피해야 할 학생들을 다른 반에 배정
-                for name2 in names_to_avoid:
-                    student2 = self._find_student_by_name(name2)
-                    if student2 and student2.assigned_class is None:
-                        # student1과 다른 반 중 유효 인원이 가장 적은 반 선택
-                        available_classes = [c for c in range(1, 8) if c != student1.assigned_class]
-                        target_class = min(available_classes,
-                                         key=lambda c: self._get_effective_count(c))
-                        self._assign_student(student2, target_class, lock=True)
-                        separation_applied += 1
+            # student1이 미배정이면 먼저 배정
+            if student1.assigned_class is None:
+                # 유효 인원이 적은 반 우선, 같으면 해당 성별이 적은 반 우선
+                target_class = min(range(1, 8),
+                                  key=lambda c: (self._get_effective_count(c),
+                                                self._get_effective_gender_count(c, student1.성별)))
+                self._assign_student(student1, target_class, lock=True)
+                separation_applied += 1
+
+            # student1과 분반 규칙이 있는 학생들을 다른 반에 배정
+            for name2 in names_to_avoid:
+                student2 = self._find_student_by_name(name2)
+                if student2 and student2.assigned_class is None:
+                    # student1과 다른 반 중 유효 인원이 가장 적은 반 선택
+                    # 유효 인원이 같으면 해당 성별이 적은 반 우선
+                    available_classes = [c for c in range(1, 8) if c != student1.assigned_class]
+                    target_class = min(available_classes,
+                                     key=lambda c: (self._get_effective_count(c),
+                                                   self._get_effective_gender_count(c, student2.성별)))
+                    self._assign_student(student2, target_class, lock=True)
+                    separation_applied += 1
 
         assigned_count = sum(1 for s in self.students if s.assigned_class is not None)
         print(f"   ✅ Phase 1 완료: {assigned_count}명 배정됨")
