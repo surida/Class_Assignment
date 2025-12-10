@@ -55,7 +55,9 @@ class Student:
             self.비고 = ""
 
     def effective_count(self) -> int:
-        """특수반 학생은 3명으로 계산"""
+        """유효 인원 계산: 특수반=3명, 전출생=0명, 일반=1명"""
+        if self.전출:
+            return 0
         return 3 if self.특수반 else 1
 
 
@@ -187,12 +189,21 @@ class ClassAssigner:
 
         conflicts = []
 
-        # 합반 그룹 내부에서 분반 규칙 검사
+        # 학생 명단에서 이름별 인원수 계산 (동명이인 확인용)
+        name_counts = Counter(s.이름 for s in self.students)
+
+        # 1. 합반 그룹 내부에서 분반 규칙 검사
         for group in self.together_groups:
             for name1 in group:
                 for name2 in group:
                     if name1 != name2 and name2 in self.separation_rules.get(name1, set()):
                         conflicts.append(f"❌ 충돌: {name1}와 {name2}는 합반해야 하지만 동시에 분반해야 함")
+
+        # 2. 합반 그룹 내부에서 동명이인 검사 (학생 명단 기준)
+        for group in self.together_groups:
+            for name in group:
+                if name_counts[name] > 1:
+                    conflicts.append(f"❌ 충돌: '{name}' 학생은 동명이인({name_counts[name]}명)이므로 합반 규칙에 포함될 수 없음")
 
         if conflicts:
             print("\n" + "=" * 70)
@@ -211,6 +222,10 @@ class ClassAssigner:
             if student.이름 == name:
                 return student
         return None
+
+    def _get_effective_count(self, class_num: int) -> int:
+        """반의 유효 인원 계산 (특수반=3명, 전출생=0명, 일반=1명)"""
+        return sum(s.effective_count() for s in self.classes[class_num])
 
     def _can_assign(self, student: Student, class_num: int) -> bool:
         """학생을 특정 반에 배정할 수 있는지 검사 (분반 규칙 체크)"""
@@ -286,10 +301,10 @@ class ClassAssigner:
                 for name2 in names_to_avoid:
                     student2 = self._find_student_by_name(name2)
                     if student2 and student2.assigned_class is None:
-                        # student1과 다른 반 중 가장 학생 수가 적은 반 선택
+                        # student1과 다른 반 중 유효 인원이 가장 적은 반 선택
                         available_classes = [c for c in range(1, 8) if c != student1.assigned_class]
                         target_class = min(available_classes,
-                                         key=lambda c: len(self.classes[c]))
+                                         key=lambda c: self._get_effective_count(c))
                         self._assign_student(student2, target_class, lock=True)
                         separation_applied += 1
 
@@ -313,13 +328,14 @@ class ClassAssigner:
         special_count_per_class = {c: sum(1 for s in self.classes[c] if s.특수반)
                                   for c in range(1, 8)}
 
-        # 특수반 학생을 적은 반부터 배정 (분반 규칙 고려)
+        # 특수반 학생을 유효 인원이 적은 반부터 배정 (분반 규칙 고려)
         for student in unassigned_special:
-            # 배정 가능한 반 중 특수반 학생이 가장 적은 반 선택
+            # 배정 가능한 반 중 유효 인원이 가장 적은 반 선택
+            # (동점인 경우 특수반 학생이 적은 반 우선)
             valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
             if valid_classes:
                 target_class = min(valid_classes,
-                                 key=lambda c: special_count_per_class[c])
+                                 key=lambda c: (self._get_effective_count(c), special_count_per_class[c]))
                 self._assign_student(student, target_class, lock=True)
                 special_count_per_class[target_class] += 1
             else:
@@ -351,13 +367,13 @@ class ClassAssigner:
 
             # 배정되지 않은 학생들을 다른 반에 배정
             for student in unassigned:
-                # 동명이인이 없고 배정 가능한 반 중 학생 수가 가장 적은 반 선택
+                # 동명이인이 없고 배정 가능한 반 중 유효 인원이 가장 적은 반 선택
                 valid_classes = [c for c in range(1, 8)
                                if c not in used_classes and self._can_assign(student, c)]
 
                 if valid_classes:
                     target_class = min(valid_classes,
-                                     key=lambda c: len(self.classes[c]))
+                                     key=lambda c: self._get_effective_count(c))
                     self._assign_student(student, target_class, lock=True)
                     used_classes.add(target_class)
                 else:
@@ -400,8 +416,8 @@ class ClassAssigner:
         print(f"   ✅ 반별 난이도 합: {difficulty_sum}")
 
     def phase5_balance_remaining(self):
-        """Phase 5: 남은 학생 최종 균형 배정"""
-        print("\n🎯 Phase 5: 남은 학생 최종 균형 배정 중...")
+        """Phase 5: 반별 순환 배정 (남녀 교차)"""
+        print("\n🎯 Phase 5: 반별 순환 배정 중...")
 
         # 미배정 학생들
         unassigned = [s for s in self.students if s.assigned_class is None]
@@ -412,61 +428,64 @@ class ClassAssigner:
 
         print(f"   - 배정 대상: {len(unassigned)}명")
 
-        # 목표 인원 계산 (특수반 학생 = 3명으로 계산)
-        total_effective = sum(s.effective_count() for s in self.students)
-        target_per_class = total_effective / 7
+        # 1. 기존 반 처리 순서 랜덤 생성
+        class_order = list(range(1, 8))
+        random.shuffle(class_order)
+        print(f"   - 기존 반 처리 순서: {class_order}")
 
-        print(f"   - 총 유효 인원: {total_effective:.1f}명")
-        print(f"   - 반별 목표: {target_per_class:.1f}명")
+        # 2. 새 반 배정 순서는 1~7 고정
+        target_classes = list(range(1, 8))
 
-        # 성별로 분리
-        male_unassigned = [s for s in unassigned if s.성별 == '남']
-        female_unassigned = [s for s in unassigned if s.성별 == '여']
+        # 3. 전역 인덱스 (순환 배정 위치 추적)
+        global_index = 0
 
-        # 점수순 정렬
-        male_unassigned.sort(key=lambda s: s.점수, reverse=True)
-        female_unassigned.sort(key=lambda s: s.점수, reverse=True)
+        # 4. 각 기존 반별로 남녀 교차 처리
+        for original_class in class_order:
+            # 4-1. 해당 반의 남학생 배정
+            males = [s for s in self.students
+                    if s.원반 == original_class and s.성별 == '남'
+                    and s.assigned_class is None]
+            males.sort(key=lambda s: s.점수, reverse=True)
 
-        # 각 반의 현재 유효 인원, 성별 수 계산
-        def get_class_stats():
-            stats = {}
-            for c in range(1, 8):
-                students = self.classes[c]
-                stats[c] = {
-                    'effective': sum(s.effective_count() for s in students),
-                    'male': sum(1 for s in students if s.성별 == '남'),
-                    'female': sum(1 for s in students if s.성별 == '여'),
-                    'score_sum': sum(s.점수 for s in students)
-                }
-            return stats
+            for student in males:
+                target_class = target_classes[global_index % 7]
+                if self._can_assign(student, target_class):
+                    self._assign_student(student, target_class, lock=False)
+                    global_index += 1
+                else:
+                    # 규칙 충돌 시 다음 반들 순서대로 시도
+                    for offset in range(1, 7):
+                        alt_class = target_classes[(global_index + offset) % 7]
+                        if self._can_assign(student, alt_class):
+                            self._assign_student(student, alt_class, lock=False)
+                            global_index += 1
+                            break
+                    else:
+                        print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
 
-        # 남학생 배정
-        for student in male_unassigned:
-            stats = get_class_stats()
-            # 배정 가능한 반 중에서 유효 인원이 가장 적고, 남학생 비율이 낮은 반 선택
-            valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
-            if valid_classes:
-                target_class = min(valid_classes,
-                                 key=lambda c: (stats[c]['effective'],
-                                              stats[c]['male']))
-                self._assign_student(student, target_class, lock=False)
-            else:
-                print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
+            # 4-2. 해당 반의 여학생 배정 (바로 이어서)
+            females = [s for s in self.students
+                      if s.원반 == original_class and s.성별 == '여'
+                      and s.assigned_class is None]
+            females.sort(key=lambda s: s.점수, reverse=True)
 
-        # 여학생 배정
-        for student in female_unassigned:
-            stats = get_class_stats()
-            # 배정 가능한 반 중에서 유효 인원이 가장 적고, 여학생 비율이 낮은 반 선택
-            valid_classes = [c for c in range(1, 8) if self._can_assign(student, c)]
-            if valid_classes:
-                target_class = min(valid_classes,
-                                 key=lambda c: (stats[c]['effective'],
-                                              stats[c]['female']))
-                self._assign_student(student, target_class, lock=False)
-            else:
-                print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
+            for student in females:
+                target_class = target_classes[global_index % 7]
+                if self._can_assign(student, target_class):
+                    self._assign_student(student, target_class, lock=False)
+                    global_index += 1
+                else:
+                    # 규칙 충돌 시 다음 반들 순서대로 시도
+                    for offset in range(1, 7):
+                        alt_class = target_classes[(global_index + offset) % 7]
+                        if self._can_assign(student, alt_class):
+                            self._assign_student(student, alt_class, lock=False)
+                            global_index += 1
+                            break
+                    else:
+                        print(f"   ⚠️  경고: {student.이름} 학생을 배정할 수 없습니다 (규칙 충돌)")
 
-        print("   ✅ 남은 학생 최종 균형 배정 완료")
+        print("   ✅ 반별 순환 배정 완료")
 
     def phase6_random_distribution(self):
         """Phase 6: 랜덤 순환 배정"""
@@ -657,7 +676,7 @@ class ClassAssigner:
             self.phase3_separate_same_names()
             self.phase4_balance_difficulty()
             self.phase5_balance_remaining()
-            self.phase6_random_distribution()
+            # self.phase6_random_distribution()  # Phase 5에서 모두 처리하므로 비활성화
 
             # 결과 생성
             self.generate_output(output_file)

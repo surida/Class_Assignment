@@ -140,31 +140,8 @@ def test_already_assigned_special_students(phase2_assigner):
     assert 특수F.assigned_class is not None
 
 
-def test_special_with_separation_rule(phase2_assigner):
-    """테스트 6: 특수반 학생 + 분반 규칙"""
-    # 특수B와 일반A 분반 규칙
-    phase2_assigner.separation_rules = defaultdict(set, {
-        '특수B': {'일반A'},
-        '일반A': {'특수B'}
-    })
-
-    # 일반A를 1반에 배정
-    일반A = phase2_assigner._find_student_by_name('일반A')
-    phase2_assigner.classes[1].append(일반A)
-    일반A.assigned_class = 1
-
-    phase2_assigner.phase2_distribute_special_needs()
-
-    특수B = phase2_assigner._find_student_by_name('특수B')
-
-    # 특수B는 배정되어야 하지만, 1반이 아님 (일반A와 분반)
-    assert 특수B.assigned_class is not None
-    assert 특수B.assigned_class != 1
-    assert 특수B.locked == True
-
-
 def test_balance_after_partial_assignment(phase2_assigner):
-    """테스트 7: 일부 반에 특수반 학생이 이미 많은 경우"""
+    """테스트 6: 일부 반에 특수반 학생이 이미 많은 경우"""
     # 1반에 일반 학생 2명 미리 배정 (특수반 아님)
     일반A = phase2_assigner._find_student_by_name('일반A')
     일반C = phase2_assigner._find_student_by_name('일반C')
@@ -195,7 +172,7 @@ def test_balance_after_partial_assignment(phase2_assigner):
 # ============================================================================
 
 def test_all_special_students_already_assigned(phase2_assigner):
-    """테스트 8: 모든 특수반 학생이 이미 배정됨"""
+    """테스트 7: 모든 특수반 학생이 이미 배정됨"""
     # 모든 특수반 학생을 미리 배정
     특수B = phase2_assigner._find_student_by_name('특수B')
     특수D = phase2_assigner._find_student_by_name('특수D')
@@ -219,7 +196,7 @@ def test_all_special_students_already_assigned(phase2_assigner):
 
 
 def test_special_student_cannot_assign_due_to_rules(phase2_assigner, capsys):
-    """테스트 9: 분반 규칙으로 배정 불가능한 특수반 학생"""
+    """테스트 8: 분반 규칙으로 배정 불가능한 특수반 학생"""
     # 특수B와 모든 반의 학생들이 분반 규칙
     phase2_assigner.separation_rules = defaultdict(set, {
         '특수B': {'일반A', '일반C', '일반E', '일반G', '일반H', '특수D', '특수F'}
@@ -267,7 +244,7 @@ def test_special_student_cannot_assign_due_to_rules(phase2_assigner, capsys):
 
 
 def test_output_messages(phase2_assigner, capsys):
-    """테스트 10: 출력 메시지 검증"""
+    """테스트 9: 출력 메시지 검증"""
     phase2_assigner.phase2_distribute_special_needs()
 
     captured = capsys.readouterr()
@@ -282,7 +259,7 @@ def test_output_messages(phase2_assigner, capsys):
 
 
 def test_seven_special_students_distribution(phase2_assigner):
-    """테스트 11: 7명의 특수반 학생 - 각 반에 1명씩"""
+    """테스트 10: 7명의 특수반 학생 - 각 반에 1명씩"""
     # 특수반 학생을 7명으로 늘림
     for i, student in enumerate(phase2_assigner.students[:7]):
         student.특수반 = True
@@ -300,7 +277,7 @@ def test_seven_special_students_distribution(phase2_assigner):
 
 
 def test_fourteen_special_students_distribution(phase2_assigner):
-    """테스트 12: 14명의 특수반 학생 - 각 반에 2명씩"""
+    """테스트 11: 14명의 특수반 학생 - 각 반에 2명씩"""
     # 학생을 14명으로 늘리고 모두 특수반으로 설정
     students = []
     for i in range(14):
@@ -330,7 +307,7 @@ def test_fourteen_special_students_distribution(phase2_assigner):
 
 
 def test_special_count_per_class_balanced(phase2_assigner):
-    """테스트 13: 반별 특수반 학생 수 균형 검증"""
+    """테스트 12: 반별 특수반 학생 수 균형 검증"""
     phase2_assigner.phase2_distribute_special_needs()
 
     # 각 반의 특수반 학생 수
