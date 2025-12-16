@@ -358,7 +358,12 @@ class ClassAssigner:
         Args:
             result_file: 배정 결과 Excel 파일 경로
         """
-        df = pd.read_excel(result_file, sheet_name='규칙')
+        def is_empty(value):
+            """빈 셀 체크 (NaN과 빈 문자열 모두 처리)"""
+            return pd.isna(value) or (isinstance(value, str) and value.strip() == '')
+
+        # header=None으로 읽어서 첫 번째 행도 데이터로 취급
+        df = pd.read_excel(result_file, sheet_name='규칙', header=None)
 
         # 분반 규칙 파싱 (columns 1, 4)
         separation_count = 0
@@ -369,10 +374,13 @@ class ClassAssigner:
             student1_name = row.iloc[1]  # Column B (index 1)
             student2_name = row.iloc[4]  # Column E (index 4)
 
-            if pd.notna(student1_name) and pd.notna(student2_name):
-                self.separation_rules[student1_name].add(student2_name)
-                self.separation_rules[student2_name].add(student1_name)
-                self.separation_pairs.append((student1_name, student2_name))
+            # 빈 문자열도 체크하고 공백 제거
+            if not is_empty(student1_name) and not is_empty(student2_name):
+                name1 = str(student1_name).strip()
+                name2 = str(student2_name).strip()
+                self.separation_rules[name1].add(name2)
+                self.separation_rules[name2].add(name1)
+                self.separation_pairs.append((name1, name2))
                 separation_count += 1
 
         # 합반 규칙 파싱 (columns 7, 10)
@@ -385,11 +393,12 @@ class ClassAssigner:
             student1_name = row.iloc[7]   # Column H (index 7)
             student2_name = row.iloc[10]  # Column K (index 10)
 
-            if pd.notna(student1_name) or pd.notna(student2_name):
-                if pd.notna(student1_name):
-                    current_group.add(student1_name)
-                if pd.notna(student2_name):
-                    current_group.add(student2_name)
+            # 빈 문자열도 빈 셀로 간주
+            if not is_empty(student1_name) or not is_empty(student2_name):
+                if not is_empty(student1_name):
+                    current_group.add(str(student1_name).strip())
+                if not is_empty(student2_name):
+                    current_group.add(str(student2_name).strip())
             else:
                 # 빈 행 = 그룹 종료
                 if current_group:
@@ -960,7 +969,7 @@ class ClassAssigner:
         rules_ws = wb.create_sheet(title='규칙')
 
         # 헤더 작성
-        headers = ['분반해야하는 학생', '', '', '', '', '', '', '', '', '', '']
+        headers = ['분반해야하는 학생', '', '', '', '', '', '', '합반해야 하는 학생', '', '', '']
         rules_ws.append(headers)
 
         # 합반 규칙을 행 리스트로 변환 (빈 행으로 그룹 구분)
@@ -970,20 +979,20 @@ class ClassAssigner:
             # 2명씩 쌍으로 묶기
             for i in range(0, len(group_list), 2):
                 name1 = group_list[i]
-                name2 = group_list[i + 1] if i + 1 < len(group_list) else ''
+                name2 = group_list[i + 1] if i + 1 < len(group_list) else None
                 together_rows.append((name1, name2))
             # 그룹 구분용 빈 행
-            together_rows.append(('', ''))
+            together_rows.append((None, None))
 
         # 마지막 빈 행 제거
-        if together_rows and together_rows[-1] == ('', ''):
+        if together_rows and together_rows[-1] == (None, None):
             together_rows.pop()
 
         # 데이터 추가
         max_rows = max(len(self.separation_pairs), len(together_rows) if together_rows else 0)
 
         for i in range(max_rows):
-            row = [''] * 11  # 11개 컬럼 (A-K)
+            row = [None] * 11  # 11개 컬럼 (A-K), None으로 초기화
 
             # 분반 규칙 (columns 1, 4 → index 1, 4)
             if i < len(self.separation_pairs):
@@ -994,8 +1003,8 @@ class ClassAssigner:
             # 합반 규칙 (columns 7, 10 → index 7, 10)
             if i < len(together_rows):
                 name1, name2 = together_rows[i]
-                row[7] = name1
-                row[10] = name2
+                row[7] = name1 if name1 else None
+                row[10] = name2 if name2 else None
 
             rules_ws.append(row)
 
