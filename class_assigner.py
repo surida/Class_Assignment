@@ -100,7 +100,7 @@ class ClassAssigner:
                 # 숫자나 '-'가 포함된 시트만 반 정보로 간주 (필요 시 로직 강화 가능)
                 # 현재는 모든 시트를 시도하되, 데이터 구조가 안 맞으면 스킵하는 방식이 안전할 수 있음
                 df = pd.read_excel(self.student_file, sheet_name=sheet_name)
-                
+
                 # 필수 컬럼 확인
                 required_cols = ['학년', '반', '번호', '이름']
                 if not all(col in df.columns for col in required_cols):
@@ -137,6 +137,105 @@ class ClassAssigner:
         print(f"   - 여학생: {sum(1 for s in self.students if s.성별 == '여')}명")
         print(f"   - 특수반: {sum(1 for s in self.students if s.특수반)}명")
         print(f"   - 전출생: {sum(1 for s in self.students if s.전출)}명")
+
+    def load_from_result(self, result_file: str):
+        """
+        배정 결과 파일(03 배정 결과.xlsx)을 로드
+
+        Args:
+            result_file: 배정 결과 Excel 파일 경로
+
+        Returns:
+            None (self.students, self.classes를 채움)
+        """
+        print("\n📂 배정 결과 파일 로드 중...")
+
+        try:
+            xl = pd.ExcelFile(result_file)
+            sheet_names = xl.sheet_names
+
+            # '요약' 시트 제외
+            class_sheets = [s for s in sheet_names if s != '요약']
+
+            if not class_sheets:
+                raise ValueError("배정 결과 파일에 반 시트가 없습니다.")
+
+            print(f"   ℹ️  감지된 반: {class_sheets}")
+
+            # target_class_count 자동 설정
+            self.target_class_count = len(class_sheets)
+            self.classes = {i: [] for i in range(1, self.target_class_count + 1)}
+
+            all_students = []
+
+            # 각 반 시트 읽기
+            for sheet_name in class_sheets:
+                # 시트 이름에서 반 번호 추출 (예: '6-1' → 1)
+                class_num = int(sheet_name.split('-')[1])
+
+                df = pd.read_excel(result_file, sheet_name=sheet_name)
+
+                for _, row in df.iterrows():
+                    # Student 객체 생성
+                    student = Student(
+                        학년=int(row['원학년']),      # 원학년 사용 (5)
+                        원반=int(row['원반']),
+                        원번호=int(row['원번호']),
+                        이름=str(row['이름']),
+                        성별=str(row['성별']),
+                        점수=float(row['점수']),
+                        특수반=row['특수반'],
+                        전출=row['전출'],
+                        난이도=row['난이도'],
+                        비고=row['비고'],
+                        assigned_class=class_num      # 이미 배정됨
+                    )
+
+                    all_students.append(student)
+                    self.classes[class_num].append(student)
+
+            self.students = all_students
+
+            # 성별별 등수 계산
+            self._calculate_ranks()
+
+            print(f"   ✅ 총 {len(self.students)}명 로드 완료")
+            print(f"   - {self.target_class_count}개 반")
+            for i in range(1, self.target_class_count + 1):
+                print(f"     {i}반: {len(self.classes[i])}명")
+
+        except Exception as e:
+            print(f"   ❌ 파일 읽기 오류: {e}")
+            raise
+
+    @staticmethod
+    def is_result_file(file_path: str) -> bool:
+        """
+        파일이 배정 결과 파일인지 확인
+
+        Args:
+            file_path: Excel 파일 경로
+
+        Returns:
+            True if 배정 결과 파일, False otherwise
+        """
+        try:
+            xl = pd.ExcelFile(file_path)
+
+            # 배정 결과 파일 특징:
+            # 1. '요약' 시트 존재
+            # 2. '6-1', '6-2' 같은 형식의 시트 존재
+            if '요약' in xl.sheet_names:
+                # 형식: 숫자-숫자 (예: '6-1')
+                import re
+                pattern = r'^\d+-\d+$'
+                class_sheets = [s for s in xl.sheet_names
+                              if re.match(pattern, s)]
+                return len(class_sheets) > 0
+
+            return False
+        except:
+            return False
 
     def _calculate_ranks(self):
         """성별별 등수 계산"""
