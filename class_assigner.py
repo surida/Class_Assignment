@@ -154,8 +154,9 @@ class ClassAssigner:
             xl = pd.ExcelFile(result_file)
             sheet_names = xl.sheet_names
 
-            # '요약' 시트 제외
-            class_sheets = [s for s in sheet_names if s != '요약']
+            # '요약', '규칙' 시트 제외
+            exclude_sheets = ['요약', '규칙']
+            class_sheets = [s for s in sheet_names if s not in exclude_sheets]
 
             if not class_sheets:
                 raise ValueError("배정 결과 파일에 반 시트가 없습니다.")
@@ -204,6 +205,14 @@ class ClassAssigner:
             for i in range(1, self.target_class_count + 1):
                 print(f"     {i}반: {len(self.classes[i])}명")
 
+            # 규칙 로드 (규칙 시트가 있으면)
+            print()
+            if '규칙' in sheet_names:
+                print("📋 Step 1: 분반/합반 규칙 로드 중...")
+                self._load_rules_from_sheet(result_file)
+            else:
+                print("   ⚠️  경고: 규칙 시트가 없습니다 (이전 버전 파일)")
+
         except Exception as e:
             print(f"   ❌ 파일 읽기 오류: {e}")
             raise
@@ -225,10 +234,12 @@ class ClassAssigner:
             # 배정 결과 파일 특징:
             # 1. '요약' 시트 존재
             # 2. '6-1', '6-2' 같은 형식의 시트 존재
+            # 3. (선택) '규칙' 시트 존재 가능
             if '요약' in xl.sheet_names:
                 # 형식: 숫자-숫자 (예: '6-1')
                 import re
                 pattern = r'^\d+-\d+$'
+                # '요약', '규칙' 제외한 반 시트만 확인
                 class_sheets = [s for s in xl.sheet_names
                               if re.match(pattern, s)]
                 return len(class_sheets) > 0
@@ -339,6 +350,63 @@ class ClassAssigner:
             raise ValueError("규칙 충돌이 발견되었습니다. 위의 충돌을 해결한 후 다시 실행해주세요.")
 
         print("   ✅ 규칙 충돌 없음 - 모든 규칙이 논리적으로 일관됨")
+
+    def _load_rules_from_sheet(self, result_file: str):
+        """
+        결과 파일의 규칙 시트에서 규칙 로드
+
+        Args:
+            result_file: 배정 결과 Excel 파일 경로
+        """
+        df = pd.read_excel(result_file, sheet_name='규칙')
+
+        # 분반 규칙 파싱 (columns 1, 4)
+        separation_count = 0
+        for idx, row in df.iterrows():
+            if idx == 0:  # 헤더 스킵
+                continue
+
+            student1_name = row.iloc[1]  # Column B (index 1)
+            student2_name = row.iloc[4]  # Column E (index 4)
+
+            if pd.notna(student1_name) and pd.notna(student2_name):
+                self.separation_rules[student1_name].add(student2_name)
+                self.separation_rules[student2_name].add(student1_name)
+                self.separation_pairs.append((student1_name, student2_name))
+                separation_count += 1
+
+        # 합반 규칙 파싱 (columns 7, 10)
+        together_count = 0
+        current_group = set()
+        for idx, row in df.iterrows():
+            if idx == 0:  # 헤더 스킵
+                continue
+
+            student1_name = row.iloc[7]   # Column H (index 7)
+            student2_name = row.iloc[10]  # Column K (index 10)
+
+            if pd.notna(student1_name) or pd.notna(student2_name):
+                if pd.notna(student1_name):
+                    current_group.add(student1_name)
+                if pd.notna(student2_name):
+                    current_group.add(student2_name)
+            else:
+                # 빈 행 = 그룹 종료
+                if current_group:
+                    self.together_groups.append(current_group)
+                    together_count += len(current_group)
+                    current_group = set()
+
+        # 마지막 그룹 처리
+        if current_group:
+            self.together_groups.append(current_group)
+            together_count += len(current_group)
+
+        print(f"   ✅ 분반 규칙: {separation_count}쌍")
+        print(f"   ✅ 합반 규칙: {len(self.together_groups)}그룹 ({together_count}명)")
+
+        # 규칙 검증
+        self._validate_rules()
 
     def _find_student_by_name(self, name: str) -> Optional[Student]:
         """이름으로 학생 찾기"""
@@ -887,6 +955,60 @@ class ClassAssigner:
         guide_cell.comment = Comment("마우스를 올리면 누구와 분반인지 표시됩니다.", "AutoAssigner")
         
         ws_summary.cell(row=legend_start_row+2, column=3, value="← 이름에 마우스를 올리면 대상 확인 가능")
+
+        # ==================== 규칙 시트 생성 ====================
+        rules_ws = wb.create_sheet(title='규칙')
+
+        # 헤더 작성
+        headers = ['분반해야하는 학생', '', '', '', '', '', '', '', '', '', '']
+        rules_ws.append(headers)
+
+        # 합반 규칙을 행 리스트로 변환 (빈 행으로 그룹 구분)
+        together_rows = []
+        for group in self.together_groups:
+            group_list = sorted(list(group))  # 정렬하여 일관성 유지
+            # 2명씩 쌍으로 묶기
+            for i in range(0, len(group_list), 2):
+                name1 = group_list[i]
+                name2 = group_list[i + 1] if i + 1 < len(group_list) else ''
+                together_rows.append((name1, name2))
+            # 그룹 구분용 빈 행
+            together_rows.append(('', ''))
+
+        # 마지막 빈 행 제거
+        if together_rows and together_rows[-1] == ('', ''):
+            together_rows.pop()
+
+        # 데이터 추가
+        max_rows = max(len(self.separation_pairs), len(together_rows) if together_rows else 0)
+
+        for i in range(max_rows):
+            row = [''] * 11  # 11개 컬럼 (A-K)
+
+            # 분반 규칙 (columns 1, 4 → index 1, 4)
+            if i < len(self.separation_pairs):
+                name1, name2 = self.separation_pairs[i]
+                row[1] = name1
+                row[4] = name2
+
+            # 합반 규칙 (columns 7, 10 → index 7, 10)
+            if i < len(together_rows):
+                name1, name2 = together_rows[i]
+                row[7] = name1
+                row[10] = name2
+
+            rules_ws.append(row)
+
+        # 스타일링 (헤더)
+        header_fill = PatternFill(start_color='D3D3D3', end_color='D3D3D3', fill_type='solid')
+        header_font = Font(bold=True)
+        for cell in rules_ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.border = THIN_BORDER
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+
+        print(f"   ✅ 규칙 시트 추가: 분반 {len(self.separation_pairs)}쌍, 합반 {len(self.together_groups)}그룹")
 
         # 파일 저장
         wb.save(output_file)

@@ -574,19 +574,15 @@ class InteractiveEditorGUI(QMainWindow):
     def __init__(self, result_file: str):
         super().__init__()
 
-        # 규칙 파일도 필요 (제약사항 검증용)
-        self.rules_file = self.find_rules_file()
-
         # Assigner 로드
         self.assigner = ClassAssigner(
             student_file="",  # 사용 안 함
-            rules_file=self.rules_file,
+            rules_file="",    # 불필요 (결과 파일에 포함됨)
             target_class_count=7  # 임시값, load_from_result에서 업데이트
         )
 
-        # 결과 파일 로드
+        # 결과 파일 로드 (규칙 포함)
         self.assigner.load_from_result(result_file)
-        self.assigner.load_rules()  # 제약사항 검증용
 
         self.current_class = 1
         self.init_ui()
@@ -594,21 +590,6 @@ class InteractiveEditorGUI(QMainWindow):
         # 첫 번째 반 자동 선택
         if self.class_list.count() > 0:
             self.class_list.setCurrentRow(0)
-
-    def find_rules_file(self) -> str:
-        """규칙 파일 찾기 (기본 경로 또는 선택)"""
-        default_path = os.path.join(get_base_path(), "02 분반 합반할 학생 규칙.xlsx")
-        if os.path.exists(default_path):
-            return default_path
-
-        # 파일 선택 요청
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "분반/합반 규칙 파일 선택",
-            get_base_path(),
-            "Excel files (*.xlsx)"
-        )
-        return file_path if file_path else ""
 
     def init_ui(self):
         """Master-Detail 레이아웃"""
