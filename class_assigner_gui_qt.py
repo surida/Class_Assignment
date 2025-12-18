@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QFileDialog, QMessageBox, QFrame,
     QSpinBox, QListWidget, QListWidgetItem, QLineEdit, QGroupBox,
-    QInputDialog, QAbstractItemView
+    QInputDialog, QAbstractItemView, QTreeWidget, QTreeWidgetItem
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
@@ -216,30 +216,39 @@ class AssignmentThread(QThread):
             )
 
 
-class StudentListWidget(QListWidget):
-    """Drag & Drop을 지원하는 학생 리스트 위젯"""
+class StudentTreeWidget(QTreeWidget):
+    """Drag & Drop을 지원하는 다중 컬럼 학생 리스트 위젯"""
     item_dropped = pyqtSignal(object, object)  # source_widget, target_widget
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAcceptDrops(True)
+        self.setColumnCount(8)
+        self.setHeaderLabels(["번호", "이름", "성별", "점수", "특수", "전출", "난이도", "정보"])
+        self.setSortingEnabled(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setDragEnabled(True)
+        self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.class_id = None  # 이 리스트가 보여주는 반 번호
+        self.class_id = None
+        
+        # 컬럼 너비 조정
+        self.setColumnWidth(0, 60)  # 번호
+        self.setColumnWidth(1, 80)  # 이름
+        self.setColumnWidth(2, 50)  # 성별
+        self.setColumnWidth(3, 60)  # 점수
+        self.setColumnWidth(4, 50)  # 특수
+        self.setColumnWidth(5, 50)  # 전출
+        self.setColumnWidth(6, 60)  # 난이도
+
+        # 행 높이 조정을 위한 스타일시트 (padding 조정)
+        self.setStyleSheet("QTreeWidget::item { padding: 2px; height: 24px; }")
 
     def dropEvent(self, event):
         source = event.source()
         if source == self:
-            # 같은 리스트 내 이동(순서 변경)은 무시
             event.ignore()
             return
-
-        # 다른 리스트에서 드롭된 경우
-        # 기본 동작(시각적 이동)은 막고, 데이터 처리를 위해 시그널 발생
-        self.item_dropped.emit(source, self)
-        event.ignore()
-
 
         self.item_dropped.emit(source, self)
         event.ignore()
@@ -299,8 +308,8 @@ class ClassPanel(QWidget):
         self.student_label.setFont(QFont("", 10, QFont.Weight.Bold))
         layout.addWidget(self.student_label)
 
-        self.student_list = StudentListWidget()
-        self.student_list.item_dropped.connect(self.on_drop_event) # Forward signal
+        self.student_list = StudentTreeWidget()
+        self.student_list.item_dropped.connect(self.on_drop_event)
         self.student_list.setFont(QFont("", 11))
         layout.addWidget(self.student_list)
 
@@ -333,22 +342,62 @@ class ClassPanel(QWidget):
             return
 
         # 1. 학생 목록 Refresh
-        self.student_list.clear()
+        self.student_list.clear() # TreeWidget Clear
         if self.current_class_id in self.assigner.classes:
             students = self.assigner.classes[self.current_class_id]
-            students.sort(key=lambda s: s.이름)
+            # Assinged Number를 위해 이름순 정렬
+            sorted_students = sorted(students, key=lambda s: s.이름)
             
-            for student in students:
-                icon = self._get_student_icon(student)
-                # 제약 정보는 상세히 보여줄지 여부 결정. 양쪽 다 보여주는게 좋음.
-                constraint_info = self.get_constraint_info(student)
-                # 점수 표시 추가
-                score_info = f"[{student.점수}점] " if hasattr(student, '점수') else ""
-                item_text = f"{icon} {student.이름} ({student.성별}) {score_info}{constraint_info}"
+
+            for idx, student in enumerate(sorted_students, 1):
+                item = QTreeWidgetItem(self.student_list)
                 
-                item = QListWidgetItem(item_text)
-                item.setData(Qt.ItemDataRole.UserRole, student)
-                self.student_list.addItem(item)
+                # 0: 번호 (Assigned Number) - 숫자 정렬
+                item.setData(0, Qt.ItemDataRole.DisplayRole, idx) 
+                item.setTextAlignment(0, Qt.AlignmentFlag.AlignCenter)
+
+                # 1: 이름
+                item.setText(1, student.이름)
+                item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
+                
+                # 2: 성별
+                item.setText(2, student.성별)
+                item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
+                
+                # 3: 점수 - 숫자 정렬
+                item.setData(3, Qt.ItemDataRole.DisplayRole, student.점수)
+                item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
+                
+                # 4: 특수
+                if student.특수반:
+                     item.setText(4, "🔴") 
+                item.setTextAlignment(4, Qt.AlignmentFlag.AlignCenter)
+
+                # 5: 전출
+                if student.전출:
+                     item.setText(5, "🛫")
+                item.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
+                
+                # 6: 난이도
+                item.setData(6, Qt.ItemDataRole.DisplayRole, student.난이도)
+                item.setTextAlignment(6, Qt.AlignmentFlag.AlignCenter)
+
+                # 7: 정보
+                info = self.get_constraint_info(student)
+                if info.startswith(" - "): info = info[3:]
+                
+                # Add Icon to Info
+                if student.이름 in self.assigner.separation_rules:
+                    info = f"🟡 {info}"
+                elif self._is_in_together_group(student):
+                    info = f"🔵 {info}"
+                
+                item.setText(7, info)
+
+                # Hidden Data: Student Object (Store in column 0 UserRole)
+                item.setData(0, Qt.ItemDataRole.UserRole, student) 
+                
+
         
         # 2. 통계 Refresh
         self.update_statistics()
@@ -952,7 +1001,7 @@ class InteractiveEditorGUI(QMainWindow):
         error_messages = []
         
         for item in selected_items:
-            student = item.data(Qt.ItemDataRole.UserRole)
+            student = item.data(0, Qt.ItemDataRole.UserRole) # QTreeWidgetItem requires column index
             success, msg = self._execute_move(student, source_class, target_class, silent=True)
             if success:
                 success_count += 1
@@ -980,7 +1029,7 @@ class InteractiveEditorGUI(QMainWindow):
         error_messages = []
         
         for item in selected_items:
-            student = item.data(Qt.ItemDataRole.UserRole)
+            student = item.data(0, Qt.ItemDataRole.UserRole)
             success, msg = self._execute_move(student, source_class, target_class, silent=True)
             if success:
                  success_count += 1

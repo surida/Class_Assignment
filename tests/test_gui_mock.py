@@ -2,7 +2,7 @@
 import sys
 import unittest
 from unittest.mock import MagicMock, patch
-from PyQt6.QtWidgets import QApplication, QListWidgetItem
+from PyQt6.QtWidgets import QApplication, QTreeWidgetItem
 from PyQt6.QtCore import Qt
 
 # Add project root to sys.path
@@ -20,6 +20,7 @@ class MockStudent:
         self.난이도 = 3.0
         self.assigned_class = None
         self.전출 = False  # Added
+        self.점수 = 50.0 # Added
 
 # Mock ClassAssigner
 class MockClassAssigner:
@@ -88,14 +89,16 @@ class TestInteractiveEditorGUI(unittest.TestCase):
         self.gui.right_panel.set_current_class(2)
         
         # Select Student1 on Left
-        item = self.gui.left_panel.student_list.item(0) # 학생1
+        # item is QTreeWidgetItem now, assume row 0
+        root = self.gui.left_panel.student_list.invisibleRootItem()
+        item = root.child(0)
         item.setSelected(True)
         # Mock selection behavior since simple setSelected might not trigger everything if needed
-        # But QListWidget.selectedItems() relies on it.
+        # But QTreeWidget.selectedItems() relies on it.
         
         # Execute Move
         with patch('PyQt6.QtWidgets.QMessageBox.information'): # Suppress info if any
-            self.gui.on_btn_move_to_right()
+             self.gui.on_btn_move_to_right()
             
         # Verify
         self.assertEqual(len(self.mock_assigner.classes[1]), 1) # One left
@@ -109,7 +112,8 @@ class TestInteractiveEditorGUI(unittest.TestCase):
         self.gui.right_panel.set_current_class(2)
         
         # Select Student3 on Right (initially in class 2)
-        item = self.gui.right_panel.student_list.item(0) # 학생3
+        root = self.gui.right_panel.student_list.invisibleRootItem()
+        item = root.child(0)
         item.setSelected(True)
         
         # Execute Move
@@ -124,12 +128,13 @@ class TestInteractiveEditorGUI(unittest.TestCase):
         self.gui.left_panel.set_current_class(1)
         self.gui.right_panel.set_current_class(2)
         
-        # "학생1" Item
-        item = QListWidgetItem("학생1")
+        # "학생1" Item Mock
+        item = QTreeWidgetItem()
         student_data = self.mock_assigner.students[0] # 학생1
-        item.setData(Qt.ItemDataRole.UserRole, student_data)
+        item.setData(0, Qt.ItemDataRole.UserRole, student_data)
         
         # Trigger on_student_dropped(source=Left, target=Right)
+        # Mock selectedItems return value for source widget
         with patch.object(self.gui.left_panel.student_list, 'selectedItems', return_value=[item]):
              self.gui.on_student_dropped(self.gui.left_panel.student_list, self.gui.right_panel.student_list)
         
