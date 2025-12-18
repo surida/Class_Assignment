@@ -149,12 +149,13 @@ class AssignmentThread(QThread):
     log_signal = pyqtSignal(str)
     finished_signal = pyqtSignal(bool, str)  # success, message
 
-    def __init__(self, student_file, rules_file, output_file, target_class_count):
+    def __init__(self, student_file, rules_file, output_file, target_class_count, special_student_weight=3.0):
         super().__init__()
         self.student_file = student_file
         self.rules_file = rules_file
         self.output_file = output_file
         self.target_class_count = target_class_count
+        self.special_student_weight = special_student_weight
 
     def run(self):
         """학급 편성 실행"""
@@ -175,7 +176,8 @@ class AssignmentThread(QThread):
                 assigner = ClassAssigner(
                     student_file=self.student_file,
                     rules_file=self.rules_file,
-                    target_class_count=self.target_class_count
+                    target_class_count=self.target_class_count,
+                    special_student_weight=self.special_student_weight
                 )
                 assigner.run(output_file=self.output_file)
 
@@ -267,10 +269,11 @@ class ClassPanel(QWidget):
         
         # 그룹박스로 감싸기? 아니면 그냥 라벨?
         # Clean UI를 위해 라벨 사용
-        header_label = QLabel(title)
-        header_label.setFont(QFont("", 12, QFont.Weight.Bold))
-        header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(header_label)
+        # 1. 제목
+        self.header_label = QLabel(title)
+        self.header_label.setFont(QFont("", 12, QFont.Weight.Bold))
+        self.header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.header_label)
 
         # 2. 반 목록 (Class List) - Navigation
         self.class_list = QListWidget()
@@ -313,6 +316,13 @@ class ClassPanel(QWidget):
     def set_current_class(self, class_id):
         self.current_class_id = class_id
         self.student_list.class_id = class_id
+        
+        # 제목 업데이트
+        if class_id is not None:
+             self.header_label.setText(f"{class_id}반")
+        else:
+             self.header_label.setText(self.title)
+             
         self.refresh_data()
 
     def refresh_data(self):
@@ -332,7 +342,9 @@ class ClassPanel(QWidget):
                 icon = self._get_student_icon(student)
                 # 제약 정보는 상세히 보여줄지 여부 결정. 양쪽 다 보여주는게 좋음.
                 constraint_info = self.get_constraint_info(student)
-                item_text = f"{icon} {student.이름} ({student.성별}){constraint_info}"
+                # 점수 표시 추가
+                score_info = f"[{student.점수}점] " if hasattr(student, '점수') else ""
+                item_text = f"{icon} {student.이름} ({student.성별}) {score_info}{constraint_info}"
                 
                 item = QListWidgetItem(item_text)
                 item.setData(Qt.ItemDataRole.UserRole, student)
@@ -643,6 +655,37 @@ class ClassAssignerGUI(QMainWindow):
         
         layout.addLayout(count_layout)
 
+        # 간격
+        layout.addSpacing(10)
+
+        # 특수반 학생 가중치 입력
+        weight_label = QLabel("특수반 학생 가중치 (몇 명으로 칠까요?):")
+        weight_label.setFont(QFont("", 12, QFont.Weight.Bold))
+        layout.addWidget(weight_label)
+        
+        weight_layout = QHBoxLayout()
+        self.weight_spin = QSpinBox()
+        self.weight_spin.setRange(1, 10)
+        self.weight_spin.setValue(3)      # 기본값 3
+        self.weight_spin.setMinimumHeight(35)
+        self.weight_spin.setFont(QFont("", 11))
+        self.weight_spin.setStyleSheet("""
+            QSpinBox {
+                padding: 5px;
+                border: 1px solid #CCCCCC;
+                border-radius: 3px;
+            }
+        """)
+        
+        weight_desc = QLabel(" 명")
+        weight_desc.setFont(QFont("", 11))
+        
+        weight_layout.addWidget(self.weight_spin)
+        weight_layout.addWidget(weight_desc)
+        weight_layout.addStretch(1)
+        
+        layout.addLayout(weight_layout)
+
         return widget
 
     def load_default_files(self):
@@ -737,11 +780,14 @@ class ClassAssignerGUI(QMainWindow):
 
         # 백그라운드 스레드 생성 및 실행
         target_count = self.class_count_spin.value()
+        special_weight = self.weight_spin.value()
+        
         self.assignment_thread = AssignmentThread(
             self.student_file_path,
             self.rules_file_path,
             output_file,
-            target_count
+            target_count,
+            special_weight
         )
         self.assignment_thread.log_signal.connect(self.log_message)
         self.assignment_thread.finished_signal.connect(self.on_assignment_finished)
@@ -904,10 +950,11 @@ class InteractiveEditorGUI(QMainWindow):
         
         for item in selected_items:
             student = item.data(Qt.ItemDataRole.UserRole)
-            if self._execute_move(student, source_class, target_class, silent=True):
+            success, msg = self._execute_move(student, source_class, target_class, silent=True)
+            if success:
                 success_count += 1
             else:
-                error_messages.append(f"{student.이름}: 이동 실패")
+                error_messages.append(f"{student.이름}: {msg}")
         
         # UI Refresh
         self.left_panel.refresh_data()
@@ -931,10 +978,11 @@ class InteractiveEditorGUI(QMainWindow):
         
         for item in selected_items:
             student = item.data(Qt.ItemDataRole.UserRole)
-            if self._execute_move(student, source_class, target_class, silent=True):
+            success, msg = self._execute_move(student, source_class, target_class, silent=True)
+            if success:
                  success_count += 1
             else:
-                 error_messages.append(f"{student.이름}: 이동 실패")
+                 error_messages.append(f"{student.이름}: {msg}")
 
         # Refresh
         self.left_panel.refresh_data()
@@ -944,17 +992,19 @@ class InteractiveEditorGUI(QMainWindow):
             QMessageBox.warning(self, "이동 실패", "\n".join(error_messages))
 
     def _execute_move(self, student, source_class, target_class, silent=False):
-        """이동 실행 및 검증 (Centralized)"""
+        """이동 실행 및 검증 (Centralized) -> Returns (success, message)"""
         # 1. Validation
         if not self.assigner._can_assign(student, target_class):
-             if not silent: QMessageBox.warning(self, "이동 불가", "분반 규칙(가까운 사이 금지) 위반")
-             return False
+             msg = "분반 규칙(가까운 사이 금지) 위반"
+             if not silent: QMessageBox.warning(self, "이동 불가", msg)
+             return False, msg
         
         # Check for same name
         same_names = [s for s in self.assigner.classes[target_class] if s.이름 == student.이름]
         if same_names:
-            if not silent: QMessageBox.warning(self, "이동 불가", "동명이인 존재")
-            return False
+            msg = "동명이인 존재"
+            if not silent: QMessageBox.warning(self, "이동 불가", msg)
+            return False, msg
             
         # 합반 규칙 경고
         together_group = None
@@ -974,15 +1024,15 @@ class InteractiveEditorGUI(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.No:
-                return False
+                return False, "합반 규칙 경고(사용자 취소)"
 
         # 2. Execution
         if student in self.assigner.classes[source_class]:
             self.assigner.classes[source_class].remove(student)
             student.assigned_class = target_class
             self.assigner.classes[target_class].append(student)
-            return True
-        return False
+            return True, "성공"
+        return False, "학생 데이터 불일치"
         
     def export_to_excel(self):
         """Excel 파일로 내보내기"""

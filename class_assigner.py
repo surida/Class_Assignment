@@ -56,20 +56,21 @@ class Student:
         if pd.isna(self.비고):
             self.비고 = ""
 
-    def effective_count(self) -> int:
-        """유효 인원 계산: 특수반=3명, 전출생=0명, 일반=1명"""
+    def effective_count(self, special_weight: float = 3.0) -> float:
+        """유효 인원 계산: 특수반=special_weight, 전출생=0명, 일반=1명"""
         if self.전출:
-            return 0
-        return 3 if self.특수반 else 1
+            return 0.0
+        return special_weight if self.특수반 else 1.0
 
 
 class ClassAssigner:
     """학급 편성 시스템"""
 
-    def __init__(self, student_file: str, rules_file: str, target_class_count: int = 7):
+    def __init__(self, student_file: str, rules_file: str, target_class_count: int = 7, special_student_weight: float = 3.0):
         self.student_file = student_file
         self.rules_file = rules_file
         self.target_class_count = target_class_count
+        self.special_student_weight = special_student_weight
         self.students: List[Student] = []
         self.classes: Dict[int, List[Student]] = {i: [] for i in range(1, self.target_class_count + 1)}
 
@@ -424,13 +425,13 @@ class ClassAssigner:
                 return student
         return None
 
-    def _get_effective_count(self, class_num: int) -> int:
-        """반의 유효 인원 계산 (특수반=3명, 전출생=0명, 일반=1명)"""
-        return sum(s.effective_count() for s in self.classes[class_num])
+    def _get_effective_count(self, class_num: int) -> float:
+        """반의 유효 인원 계산 (특수반=weight, 전출생=0명, 일반=1명)"""
+        return sum(s.effective_count(self.special_student_weight) for s in self.classes[class_num])
 
-    def _get_effective_gender_count(self, class_num: int, gender: str) -> int:
+    def _get_effective_gender_count(self, class_num: int, gender: str) -> float:
         """반의 특정 성별 유효 인원 계산"""
-        return sum(s.effective_count() for s in self.classes[class_num]
+        return sum(s.effective_count(self.special_student_weight) for s in self.classes[class_num]
                    if s.성별 == gender)
 
     def _can_assign(self, student: Student, class_num: int) -> bool:
