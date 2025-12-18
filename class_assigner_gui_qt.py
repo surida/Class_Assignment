@@ -10,10 +10,44 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QFileDialog, QMessageBox, QFrame,
     QSpinBox, QListWidget, QListWidgetItem, QLineEdit, QGroupBox,
-    QInputDialog, QAbstractItemView, QTreeWidget, QTreeWidgetItem
+    QInputDialog, QAbstractItemView, QTreeWidget, QTreeWidgetItem,
+    QStyledItemDelegate, QStyleOptionViewItem, QStyle
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter
+
+def create_circle_icon(color_code, size=16):
+    """Creates a colored circle icon"""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setBrush(QColor(color_code))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawEllipse(0, 0, size, size)
+    painter.end()
+    return QIcon(pixmap)
+
+def create_composite_icon(colors, size=16):
+    """Creates an icon with multiple colored circles"""
+    if not colors:
+        return QIcon()
+    
+    width = size * len(colors) + (2 * (len(colors) - 1)) # Add spacing
+    pixmap = QPixmap(width, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    
+    for i, color_code in enumerate(colors):
+        painter.setBrush(QColor(color_code))
+        x = i * (size + 2) # 2px spacing default
+        painter.drawEllipse(x, 0, size, size)
+        
+    painter.end()
+    return QIcon(pixmap)
 from class_assigner import ClassAssigner, get_base_path
 
 
@@ -216,15 +250,67 @@ class AssignmentThread(QThread):
             )
 
 
+
+class StatusDelegate(QStyledItemDelegate):
+    """Delegate to render status circles and text in the same column"""
+    def paint(self, painter, option, index):
+        # 1. Setup
+        painter.save()
+        
+        # Draw background (handling selection)
+        style = option.widget.style()
+        style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, option, painter, option.widget)
+        
+        # Get data
+        colors = index.data(Qt.ItemDataRole.UserRole)
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        
+        # Layout metrics
+        rect = option.rect
+        icon_size = 14
+        spacing = 4
+        x = rect.left() + spacing
+        y = rect.top() + (rect.height() - icon_size) // 2
+
+        # 2. Draw Circles
+        if colors and isinstance(colors, list):
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            for color_code in colors:
+                painter.setBrush(QColor(color_code))
+                painter.drawEllipse(x, y, icon_size, icon_size)
+                x += icon_size + 2 # 2px gap between circles
+            
+            x += spacing # Gap before text
+
+        # 3. Draw Text
+        if text:
+            # Handle Text Color (White if selected)
+            if option.state & QStyle.StateFlag.State_Selected:
+                painter.setPen(option.palette.highlightedText().color())
+            else:
+                painter.setPen(option.palette.text().color())
+                
+            text_rect = rect.adjusted(x - rect.left(), 0, 0, 0)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
+            
+        painter.restore()
+
 class StudentTreeWidget(QTreeWidget):
     """Drag & Drop을 지원하는 다중 컬럼 학생 리스트 위젯"""
     item_dropped = pyqtSignal(object, object)  # source_widget, target_widget
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setColumnCount(8)
-        self.setHeaderLabels(["번호", "이름", "성별", "점수", "특수", "전출", "난이도", "정보"])
+        self.setColumnCount(6)
+        self.setHeaderLabels(["번호", "이름", "성별", "점수", "난이도", "정보"])
         self.setSortingEnabled(True)
+        self.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        
+        # Set Delegate for Info Column (5)
+        self.setItemDelegateForColumn(5, StatusDelegate(self))
+
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
@@ -237,9 +323,8 @@ class StudentTreeWidget(QTreeWidget):
         self.setColumnWidth(1, 80)  # 이름
         self.setColumnWidth(2, 50)  # 성별
         self.setColumnWidth(3, 60)  # 점수
-        self.setColumnWidth(4, 50)  # 특수
-        self.setColumnWidth(5, 50)  # 전출
-        self.setColumnWidth(6, 60)  # 난이도
+        self.setColumnWidth(4, 60)  # 난이도
+        # self.setColumnWidth(5, 100) # 정보 (나머지 자동)
 
         # 행 높이 조정을 위한 스타일시트 (padding 조정)
         self.setStyleSheet("QTreeWidget::item { padding: 2px; height: 24px; }")
@@ -350,6 +435,10 @@ class ClassPanel(QWidget):
             
 
             for idx, student in enumerate(sorted_students, 1):
+                # DEBUG: Log for Park Cheol-su
+                if "박철수" in student.이름:
+                    print(f"DEBUG(GUI): {student.이름} - 전출:{student.전출}, 특수:{student.특수반}, 분반Rule:{student.이름 in self.assigner.separation_rules}")
+
                 item = QTreeWidgetItem(self.student_list)
                 
                 # 0: 번호 (Assigned Number) - 숫자 정렬
@@ -368,31 +457,31 @@ class ClassPanel(QWidget):
                 item.setData(3, Qt.ItemDataRole.DisplayRole, student.점수)
                 item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
                 
-                # 4: 특수
-                if student.특수반:
-                     item.setText(4, "🔴") 
+                # 4: 난이도 (Previously 6)
+                item.setData(4, Qt.ItemDataRole.DisplayRole, student.난이도)
                 item.setTextAlignment(4, Qt.AlignmentFlag.AlignCenter)
 
-                # 5: 전출
-                if student.전출:
-                     item.setText(5, "🛫")
-                item.setTextAlignment(5, Qt.AlignmentFlag.AlignCenter)
-                
-                # 6: 난이도
-                item.setData(6, Qt.ItemDataRole.DisplayRole, student.난이도)
-                item.setTextAlignment(6, Qt.AlignmentFlag.AlignCenter)
-
-                # 7: 정보
+                # 5: 정보 (Previously 7) - Integrated Status
                 info = self.get_constraint_info(student)
                 if info.startswith(" - "): info = info[3:]
                 
-                # Add Icon to Info
-                if student.이름 in self.assigner.separation_rules:
-                    info = f"🟡 {info}"
-                elif self._is_in_together_group(student):
-                    info = f"🔵 {info}"
+                # Multi-Icon Logic
+                status_colors = []
                 
-                item.setText(7, info)
+                if student.전출:
+                    status_colors.append("#9E9E9E") # 회색
+                
+                if student.특수반:
+                    status_colors.append("#9C27B0") # 보라
+                    
+                if student.이름 in self.assigner.separation_rules:
+                    status_colors.append("#FFD700") # 노랑
+                elif self._is_in_together_group(student):
+                    status_colors.append("#2196F3") # 파랑
+                
+                # Pass data to Delegate
+                item.setData(5, Qt.ItemDataRole.UserRole, status_colors)
+                item.setData(5, Qt.ItemDataRole.DisplayRole, info)
 
                 # Hidden Data: Student Object (Store in column 0 UserRole)
                 item.setData(0, Qt.ItemDataRole.UserRole, student) 
@@ -936,11 +1025,25 @@ class InteractiveEditorGUI(QMainWindow):
         # 범례
         legend_group = QGroupBox("범례")
         legend_layout = QVBoxLayout()
-        legend_layout.addWidget(QLabel("🔴 특수"))
-        legend_layout.addWidget(QLabel("🟡 분반"))
-        legend_layout.addWidget(QLabel("🔵 합반"))
-        legend_layout.addWidget(QLabel("⚪ 일반"))
-        legend_layout.addWidget(QLabel("🛫 전출"))
+        
+        # Helper to create colored legend item
+        def add_legend_item(text, color_code):
+            item_layout = QHBoxLayout()
+            icon_label = QLabel()
+            # 16x16 Circle Icon
+            icon_label.setPixmap(create_circle_icon(color_code, 16).pixmap(16, 16))
+            text_label = QLabel(text)
+            
+            item_layout.addWidget(icon_label)
+            item_layout.addWidget(text_label)
+            item_layout.addStretch()
+            legend_layout.addLayout(item_layout)
+
+        add_legend_item("특수학생 (보라)", "#9C27B0")
+        add_legend_item("분반 (노랑)", "#FFD700")
+        add_legend_item("합반 (파랑)", "#2196F3")
+        add_legend_item("전출 (회색)", "#9E9E9E")
+        add_legend_item("일반 (흰색)", "#FFFFFF")
         legend_group.setLayout(legend_layout)
         right_sidebar.addWidget(legend_group)
         
