@@ -365,10 +365,11 @@ class ClassPanel(QWidget):
         # self.assigner._get_effective_count is protected. But accessible.
         effective_count = self.assigner._get_effective_count(self.current_class_id)
         special_count = sum(1 for s in students if s.특수반)
+        transferred_count = sum(1 for s in students if s.전출)
         
         stats_text = (
             f"총원: {len(students)}명 (유효: {effective_count}명)\n"
-            f"남: {male_count} / 여: {female_count} / 특수: {special_count}"
+            f"남: {male_count} / 여: {female_count} / 특수: {special_count} / 전출: {transferred_count}"
         )
         self.stats_label.setText(stats_text)
 
@@ -377,7 +378,8 @@ class ClassPanel(QWidget):
 
     # Helper methods copied/adapted from old InteractiveEditorGUI
     def _get_student_icon(self, student):
-        if student.특수반: return "🔴"
+        if student.전출: return "🛫"
+        elif student.특수반: return "🔴"
         elif student.이름 in self.assigner.separation_rules: return "🟡"
         elif self._is_in_together_group(student): return "🔵"
         else: return "⚪"
@@ -889,6 +891,7 @@ class InteractiveEditorGUI(QMainWindow):
         legend_layout.addWidget(QLabel("🟡 분반"))
         legend_layout.addWidget(QLabel("🔵 합반"))
         legend_layout.addWidget(QLabel("⚪ 일반"))
+        legend_layout.addWidget(QLabel("🛫 전출"))
         legend_group.setLayout(legend_layout)
         right_sidebar.addWidget(legend_group)
         

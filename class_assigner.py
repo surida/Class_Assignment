@@ -164,6 +164,19 @@ class ClassAssigner:
 
             print(f"   ℹ️  감지된 반: {class_sheets}")
 
+            # 요약 시트에서 특수반 가중치 로드 시도
+            if '요약' in sheet_names:
+                summary_ws = pd.read_excel(result_file, sheet_name='요약', header=None)
+                # J1="특수반 가중치", K1=값 (pandas는 0-index -> J=9, K=10)
+                # 첫 행(index 0)에 있는지 확인
+                if summary_ws.shape[1] > 10:
+                    val = summary_ws.iloc[0, 10]
+                    try:
+                        self.special_student_weight = float(val)
+                        print(f"   ⚖️ 특수반 가중치 로드: {self.special_student_weight}")
+                    except (ValueError, TypeError):
+                        pass
+
             # target_class_count 자동 설정
             self.target_class_count = len(class_sheets)
             self.classes = {i: [] for i in range(1, self.target_class_count + 1)}
@@ -915,11 +928,11 @@ class ClassAssigner:
             summary_data.append({
                 '반': f'{target_grade}-{class_num}',
                 '학생수': len(students),
-                '유효인원': sum(s.effective_count() for s in students),
+                '유효인원': sum(s.effective_count(self.special_student_weight) for s in students),
                 '남학생수': sum(1 for s in students if s.성별 == '남'),
                 '여학생수': sum(1 for s in students if s.성별 == '여'),
-                '유효남학생': sum(s.effective_count() for s in students if s.성별 == '남'),
-                '유효여학생': sum(s.effective_count() for s in students if s.성별 == '여'),
+                '유효남학생': sum(s.effective_count(self.special_student_weight) for s in students if s.성별 == '남'),
+                '유효여학생': sum(s.effective_count(self.special_student_weight) for s in students if s.성별 == '여'),
                 '난이도합': sum(s.난이도 for s in students),
                 '특수반수': sum(1 for s in students if s.특수반),
                 '전출생수': sum(1 for s in students if s.전출)
@@ -950,6 +963,13 @@ class ClassAssigner:
         # 범례(Legend) 추가
         legend_start_row = len(summary_data) + 5
         ws_summary.cell(row=legend_start_row, column=1, value="[범례]").font = Font(bold=True, size=12)
+
+        # 특수반 가중치 저장 (메타데이터)
+        ws_summary.cell(row=1, column=10, value="특수반 가중치").font = HEADER_FONT
+        ws_summary.cell(row=1, column=10).fill = HEADER_FILL
+        ws_summary.cell(row=1, column=10).border = THIN_BORDER
+        ws_summary.cell(row=1, column=11, value=self.special_student_weight).border = THIN_BORDER
+        ws_summary.cell(row=1, column=11).alignment = CENTER_ALIGN
         
         # 합반 범례
         ws_summary.cell(row=legend_start_row+1, column=1, value="합반 규칙 적용").border = THIN_BORDER

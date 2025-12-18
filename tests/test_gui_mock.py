@@ -19,6 +19,7 @@ class MockStudent:
         self.특수반 = special
         self.난이도 = 3.0
         self.assigned_class = None
+        self.전출 = False  # Added
 
 # Mock ClassAssigner
 class MockClassAssigner:
@@ -31,7 +32,11 @@ class MockClassAssigner:
         self.rules_file = "mock_rules.xlsx"
 
     def load_from_result(self, filepath):
-        pass
+        # Mock behavior: if file implies special weight, set it
+        if "weight_5" in filepath:
+             self.special_student_weight = 5.0
+        else:
+             self.special_student_weight = 3.0
 
     def _get_effective_count(self, class_num):
         return len(self.classes[class_num])
