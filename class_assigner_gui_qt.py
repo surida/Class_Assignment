@@ -15,10 +15,11 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QTextEdit, QFileDialog, QMessageBox, QFrame,
     QSpinBox, QListWidget, QListWidgetItem, QLineEdit, QGroupBox,
     QInputDialog, QAbstractItemView, QTreeWidget, QTreeWidgetItem,
-    QStyledItemDelegate, QStyleOptionViewItem, QStyle
+    QStyledItemDelegate, QStyleOptionViewItem, QStyle, QComboBox, QSplitter,
+    QGraphicsDropShadowEffect
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QRect, QPoint
+from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter, QLinearGradient
 
 def create_circle_icon(color_code, size=16):
     """Creates a colored circle icon"""
@@ -216,6 +217,7 @@ class ClassAssignerStartGUI(QMainWindow):
                 "오류",
                 f"파일 로드 중 오류가 발생했습니다:\n\n{str(e)}\n\n상세 로그가 저장되었습니다:\n{log_file}"
             )
+            return
 
 
 class AssignmentThread(QThread):
@@ -337,37 +339,144 @@ class StatusDelegate(QStyledItemDelegate):
             
         painter.restore()
 
+class ModernTableDelegate(QStyledItemDelegate):
+    """
+    Modern Dark Mode Table Delegate
+    Handles badges in Column 5 and general styling
+    """
+    def sizeHint(self, option, index):
+        return QSize(option.rect.width(), 32)  # Height 32px
+
+    def paint(self, painter, option, index):
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # 1. Background (Selection / Hover)
+        rect = option.rect
+        
+        # Determine Color
+        if option.state & QStyle.StateFlag.State_Selected:
+            bg_color = QColor("#1565C0") # Dark Blue
+            text_color = QColor("#FFFFFF")
+        elif option.state & QStyle.StateFlag.State_MouseOver:
+            bg_color = QColor("#333333") 
+            text_color = QColor("#FFFFFF")
+        else:
+            # Alternating Row Colors handled by QTreeWidget possibly, but here manual
+            bg_color = QColor("#2D2D2D")
+            text_color = QColor("#E0E0E0")
+
+        # Draw Background
+        painter.fillRect(rect, bg_color)
+        
+        # Draw Border (Bottom Line)
+        painter.setPen(QColor("#424242"))
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+
+        # 2. Content Drawing by Column
+        col = index.column()
+        # Data
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        
+        # Text Rect
+        text_rect = rect.adjusted(5, 0, -5, 0)
+        
+        painter.setPen(text_color)
+        
+        # Column Specific Rendering
+        if col == 5: # Info Column (Badges)
+            badges = index.data(Qt.ItemDataRole.UserRole + 1)
+            if badges:
+                badge_x = rect.left() + 5
+                badge_y = rect.center().y()
+                
+                font = painter.font()
+                font.setPointSize(9)
+                painter.setFont(font)
+
+                for b_text, bg_c, txt_c in badges:
+                    fm = painter.fontMetrics()
+                    b_w = fm.horizontalAdvance(b_text) + 12
+                    b_h = 18
+                    
+                    b_rect = QRect(badge_x, badge_y - b_h//2, b_w, b_h)
+                    
+                    # Draw Badge
+                    painter.setBrush(QColor(bg_c))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRoundedRect(b_rect, 4, 4)
+                    
+                    painter.setPen(QColor(txt_c))
+                    painter.drawText(b_rect, Qt.AlignmentFlag.AlignCenter, b_text)
+                    
+                    badge_x += b_w + 5
+            else:
+                # Fallback text if no badges but text exists (shouldn't happen with new logic)
+                pass 
+                
+        elif col == 2: # Gender
+             # Center Align
+             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(text))
+        elif col == 3 or col == 4: # Score, Difficulty
+             # Center Align
+             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(text))
+        else: # Name, Number
+             painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, str(text))
+
+        painter.restore()
+
 class StudentTreeWidget(QTreeWidget):
-    """Drag & Drop을 지원하는 다중 컬럼 학생 리스트 위젯"""
+    """Drag & Drop을 지원하는 현대적인 테이블 리스트 위젯"""
     item_dropped = pyqtSignal(object, object)  # source_widget, target_widget
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        
+        # Multi-Column Mode
         self.setColumnCount(6)
         self.setHeaderLabels(["번호", "이름", "성별", "점수", "난이도", "정보"])
-        self.setSortingEnabled(True)
-        self.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        self.setHeaderHidden(False) 
+        self.setIndentation(0)     
+        self.setRootIsDecorated(False)
+        self.setSortingEnabled(True) # Enable Sorting
         
-        # Set Delegate for Info Column (5)
-        self.setItemDelegateForColumn(5, StatusDelegate(self))
+        # Modern Table Delegate 적용
+        self.setItemDelegate(ModernTableDelegate(self))
 
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.class_id = None
         
-        # 컬럼 너비 조정
-        self.setColumnWidth(0, 60)  # 번호
-        self.setColumnWidth(1, 80)  # 이름
-        self.setColumnWidth(2, 50)  # 성별
-        self.setColumnWidth(3, 60)  # 점수
-        self.setColumnWidth(4, 60)  # 난이도
-        # self.setColumnWidth(5, 100) # 정보 (나머지 자동)
-
-        # 행 높이 조정을 위한 스타일시트 (padding 조정)
-        self.setStyleSheet("QTreeWidget::item { padding: 2px; height: 24px; }")
+        self.setMouseTracking(True)
+        
+        # Style
+        self.setStyleSheet("""
+            QTreeWidget {
+                background-color: #2D2D2D;
+                border: none;
+                gridline-color: #424242;
+            }
+            QHeaderView::section {
+                background-color: #1E1E1E;
+                color: #B0BEC5;
+                padding: 4px;
+                border: none;
+                border-bottom: 2px solid #424242;
+                font-weight: bold;
+            }
+        """)
+        
+        # Column Widths
+        self.setColumnWidth(0, 50)  # No
+        self.setColumnWidth(1, 100) # Name
+        self.setColumnWidth(2, 50)  # Gender
+        self.setColumnWidth(3, 60)  # Score
+        self.setColumnWidth(4, 60)  # Diff
+        # Info takes rest
+        
+        self.class_id = None
 
     def dropEvent(self, event):
         source = event.source()
@@ -381,8 +490,8 @@ class StudentTreeWidget(QTreeWidget):
 
 class ClassPanel(QWidget):
     """
-    개별 반 관리를 위한 패널 (반 목록 + 통계 + 학생 목록)
-    Symmetrical UI를 위해 재사용 가능한 컴포넌트
+    개별 반 관리를 위한 패널 (Card Style)
+    Enhanced Modern Dark Mode: Shadow + ComboBox
     """
     class_selected = pyqtSignal(int)
     student_dropped = pyqtSignal(object, object) # source_widget, target_widget
@@ -391,79 +500,141 @@ class ClassPanel(QWidget):
         super().__init__(parent)
         self.assigner = assigner
         self.current_class_id = None
-        self.init_ui(title)
-
-    def init_ui(self, title):
-        layout = QVBoxLayout()
-        layout.setSpacing(5)
-        layout.setContentsMargins(0, 0, 0, 0) # 패널 간 간격은 메인 레이아웃에서 조정
-
-        # 1. 제목 (예: "왼쪽 패널" or "1반~7반") -> "반 선택"으로 통일하거나 인자로 받음
-        # layout.addWidget(QLabel(title)) # 제목 생략 또는 그룹박스로 처리 가능
+        self.title = title
+        self.init_ui()
         
-        # 그룹박스로 감싸기? 아니면 그냥 라벨?
-        # Clean UI를 위해 라벨 사용
-        # 1. 제목
-        self.header_label = QLabel(title)
-        self.header_label.setFont(QFont("", 12, QFont.Weight.Bold))
-        self.header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.header_label)
+        # Add Drop Shadow
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20)
+        shadow.setXOffset(0)
+        shadow.setYOffset(4)
+        shadow.setColor(QColor(0, 0, 0, 80)) # 30% Black
+        self.setGraphicsEffect(shadow)
 
-        # 2. 반 목록 (Class List) - Navigation
-        self.class_list = QListWidget()
-        self.class_list.setMaximumHeight(120) # 너무 높지 않게
+    def init_ui(self):
+        # Card Main Layout
+        layout = QVBoxLayout()
+        layout.setSpacing(10)
+        layout.setContentsMargins(15, 15, 15, 15)
+
+        # Apply Card Style to self (Dark Mode)
+        self.setObjectName("ClassPanel")
+        self.setStyleSheet("""
+            QWidget#ClassPanel {
+                background-color: #2D2D2D;
+                border-radius: 12px;
+                border: 1px solid #424242;
+            }
+        """)
+
+        # 1. Header Area (Class Selector + Stats)
+        header_layout = QHBoxLayout()
+        
+        # 1.1 Class Selector (Title)
+        self.class_combo = QComboBox()
+        self.class_combo.setMinimumWidth(100)
+        self.class_combo.setFont(QFont("", 14, QFont.Weight.Bold))
+        self.class_combo.setStyleSheet("""
+            QComboBox {
+                border: none;
+                background: transparent;
+                padding: 0px;
+                selection-background-color: transparent;
+                color: #FFFFFF;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #424242;
+                color: white;
+                selection-background-color: #2196F3;
+            }
+        """)
+        
+        # Populate Combo
+        self.class_combo.addItem(self.title, None) # Placeholder or "Select Class"
         for i in range(1, self.assigner.target_class_count + 1):
-            item = QListWidgetItem(f"{i}반")
-            item.setData(Qt.ItemDataRole.UserRole, i)
-            self.class_list.addItem(item)
-        self.class_list.currentRowChanged.connect(self.on_class_list_changed)
-        layout.addWidget(self.class_list)
+            self.class_combo.addItem(f"{i}반", i)
+            
+        self.class_combo.currentIndexChanged.connect(self.on_class_combo_changed)
+        header_layout.addWidget(self.class_combo)
+        
+        header_layout.addStretch()
+        
+        layout.addLayout(header_layout)
 
-        # 3. 통계 (Statistics) - "화면 위치는 반목록 하단에 반통계정보"
-        stats_group = QGroupBox("📊 반 통계")
-        stats_layout = QVBoxLayout()
-        self.stats_label = QLabel("반을 선택해주세요.")
+        # 2. Stats Line (Inline)
+        self.stats_label = QLabel("반을 선택해주세요")
         self.stats_label.setFont(QFont("", 10))
-        stats_layout.addWidget(self.stats_label)
-        stats_group.setLayout(stats_layout)
-        layout.addWidget(stats_group)
+        self.stats_label.setStyleSheet("color: #B0BEC5;") # Light Blue Grey
+        layout.addWidget(self.stats_label)
 
-        # 4. 학생 목록 (Student List)
-        self.student_label = QLabel("학생 목록")
-        self.student_label.setFont(QFont("", 10, QFont.Weight.Bold))
-        layout.addWidget(self.student_label)
+        # Divider
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Plain)
+        line.setStyleSheet("background-color: #424242;") # Dark Divider
+        line.setFixedHeight(1)
+        layout.addWidget(line)
 
+        # 3. Student List
         self.student_list = StudentTreeWidget()
         self.student_list.item_dropped.connect(self.on_drop_event)
-        self.student_list.setFont(QFont("", 11))
+        
+        # Custom Scrollbar Style for the List
+        scroll_style = """
+             QScrollBar:vertical {
+                border: none;
+                background: #2D2D2D;
+                width: 8px;
+                margin: 0px 0 0px 0;
+            }
+            QScrollBar::handle:vertical {
+                background: #616161;
+                min-height: 20px;
+                border-radius: 4px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """
+        self.student_list.verticalScrollBar().setStyleSheet(scroll_style)
+        
         layout.addWidget(self.student_list)
 
         self.setLayout(layout)
 
-    def on_class_list_changed(self, row):
-        if row < 0: return
-        item = self.class_list.item(row)
-        class_id = item.data(Qt.ItemDataRole.UserRole)
+    def on_class_combo_changed(self, index):
+        class_id = self.class_combo.currentData()
         self.set_current_class(class_id)
-        self.class_selected.emit(class_id)
+        if class_id is not None:
+            self.class_selected.emit(class_id)
 
     def set_current_class(self, class_id):
         self.current_class_id = class_id
         self.student_list.class_id = class_id
         
-        # 제목 업데이트
-        if class_id is not None:
-             self.header_label.setText(f"{class_id}반")
+        # Sync Combo if set externally
+        if class_id is None:
+            self.class_combo.setCurrentIndex(0)
         else:
-             self.header_label.setText(self.title)
-             
+            # Find index
+            idx = self.class_combo.findData(class_id)
+            if idx >= 0 and self.class_combo.currentIndex() != idx:
+                self.class_combo.setCurrentIndex(idx)
+              
         self.refresh_data()
 
     def refresh_data(self):
         """데이터(학생 목록, 통계) 새로고침"""
+        # 0. Always Update Combo Stats (for all classes)
+        self.update_combo_stats()
+
         if self.current_class_id is None:
             self.student_list.clear()
-            self.stats_label.setText("반을 선택해주세요.")
+            self.stats_label.setText("반을 선택해주세요")
             return
 
         # 1. 학생 목록 Refresh
@@ -473,63 +644,78 @@ class ClassPanel(QWidget):
             # Assinged Number를 위해 이름순 정렬
             sorted_students = sorted(students, key=lambda s: s.이름)
             
-
             for idx, student in enumerate(sorted_students, 1):
-                # DEBUG: Log for Park Cheol-su
-                if "박철수" in student.이름:
-                    print(f"DEBUG(GUI): {student.이름} - 전출:{student.전출}, 특수:{student.특수반}, 분반Rule:{student.이름 in self.assigner.separation_rules}")
-
                 item = QTreeWidgetItem(self.student_list)
                 
-                # 0: 번호 (Assigned Number) - 숫자 정렬
+                # Column 0: Number (Sortable)
                 item.setData(0, Qt.ItemDataRole.DisplayRole, idx) 
-                item.setTextAlignment(0, Qt.AlignmentFlag.AlignCenter)
-
-                # 1: 이름
+                
+                # Column 1: Name
                 item.setText(1, student.이름)
-                item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
                 
-                # 2: 성별
+                # Column 2: Gender
                 item.setText(2, student.성별)
-                item.setTextAlignment(2, Qt.AlignmentFlag.AlignCenter)
                 
-                # 3: 점수 - 숫자 정렬
+                # Column 3: Score (Sortable Number)
                 item.setData(3, Qt.ItemDataRole.DisplayRole, student.점수)
-                item.setTextAlignment(3, Qt.AlignmentFlag.AlignCenter)
                 
-                # 4: 난이도 (Previously 6)
-                item.setData(4, Qt.ItemDataRole.DisplayRole, student.난이도)
-                item.setTextAlignment(4, Qt.AlignmentFlag.AlignCenter)
+                # Column 4: Difficulty
+                item.setText(4, str(student.난이도) if student.난이도 is not None else "")
 
-                # 5: 정보 (Previously 7) - Integrated Status
-                info = self.get_constraint_info(student)
-                if info.startswith(" - "): info = info[3:]
-                
-                # Multi-Icon Logic
-                status_colors = []
-                
-                if student.전출:
-                    status_colors.append("#9E9E9E") # 회색
-                
-                if student.특수반:
-                    status_colors.append("#9C27B0") # 보라
-                    
-                if student.이름 in self.assigner.separation_rules:
-                    status_colors.append("#FFD700") # 노랑
-                elif self._is_in_together_group(student):
-                    status_colors.append("#2196F3") # 파랑
-                
-                # Pass data to Delegate
-                item.setData(5, Qt.ItemDataRole.UserRole, status_colors)
-                item.setData(5, Qt.ItemDataRole.DisplayRole, info)
-
-                # Hidden Data: Student Object (Store in column 0 UserRole)
+                # Store Student Object in UserRole (Accessible from all cols ideally, but root item is enough)
                 item.setData(0, Qt.ItemDataRole.UserRole, student) 
                 
+                # Calculate Extra Badges (Rules) for Column 5
+                badges = []
+                
+                # 1. 분반 규칙 Check (Separation)
+                if student.이름 in self.assigner.separation_rules:
+                     partners = self.assigner.separation_rules[student.이름]
+                     partner_str = ",".join(list(partners))
+                     badges.append((f"🚫 {partner_str}", "#F57F17", "#FFF9C4")) # Dark Yellow Bg
+                
+                # 2. 합반 규칙 Check (Together)
+                is_together = False
+                partners = set()
+                for group in self.assigner.together_groups:
+                    if student.이름 in group:
+                        is_together = True
+                        partners = group - {student.이름}
+                        break
+                if is_together:
+                    partner_str = ",".join(list(partners)) if partners else ""
+                    badges.append((f"🤝 {partner_str}", "#1565C0", "#E3F2FD")) # Dark Blue Bg
 
-        
-        # 2. 통계 Refresh
+                # Badges for Transfer/Special
+                if student.전출:
+                    badges.insert(0, ("전출", "#424242", "#BDBDBD"))
+                if student.특수반:
+                    badges.insert(0, ("특수", "#4A148C", "#E1BEE7"))
+                    
+                # Store Badges in UserRole + 1 of Column 5 (Info) (AND Column 0 just in case)
+                item.setData(5, Qt.ItemDataRole.UserRole + 1, badges)
+                # item.setData(5, Qt.ItemDataRole.DisplayRole, "") # No text, just badges
+
+
+        # 2. 통계 Refresh (Current View)
         self.update_statistics()
+
+    def update_combo_stats(self):
+        """콤보박스 아이템들의 텍스트를 최신 통계로 업데이트"""
+        for i in range(self.class_combo.count()):
+            class_id = self.class_combo.itemData(i)
+            if class_id is None: continue # Skip placeholder
+            
+            if class_id in self.assigner.classes:
+                students = self.assigner.classes[class_id]
+                total = len(students)
+                effective = self.assigner._get_effective_count(class_id)
+                male = sum(1 for s in students if s.성별 == '남')
+                female = sum(1 for s in students if s.성별 == '여')
+                
+                # Format: "1반 - 총 22 (유효 21) | 남 10 여 12"
+                new_text = f"{class_id}반 - 총 {total}명 (유효 {effective}) | 남 {male} 여 {female}"
+                self.class_combo.setItemText(i, new_text)
 
     def update_statistics(self):
         if self.current_class_id not in self.assigner.classes:
@@ -539,15 +725,12 @@ class ClassPanel(QWidget):
         
         male_count = sum(1 for s in students if s.성별 == '남')
         female_count = sum(1 for s in students if s.성별 == '여')
-        # effective_count logic access?
-        # self.assigner._get_effective_count is protected. But accessible.
         effective_count = self.assigner._get_effective_count(self.current_class_id)
-        special_count = sum(1 for s in students if s.특수반)
-        transferred_count = sum(1 for s in students if s.전출)
         
+        # Simple One-Liner (Stats Label is strict text, Combo has the details now too)
         stats_text = (
-            f"총원: {len(students)}명 (유효: {effective_count}명)\n"
-            f"남: {male_count} / 여: {female_count} / 특수: {special_count} / 전출: {transferred_count}"
+            f"총 {len(students)}명 (유효 {effective_count})  |  "
+            f"남 {male_count}  ·  여 {female_count}"
         )
         self.stats_label.setText(stats_text)
 
@@ -1164,8 +1347,8 @@ class InteractiveEditorGUI(QMainWindow):
 
         # 편의상 반 자동 선택 (1반, 2반)
         if self.assigner.target_class_count >= 2:
-            self.left_panel.class_list.setCurrentRow(0) # 1반
-            self.right_panel.class_list.setCurrentRow(1) # 2반
+            self.left_panel.set_current_class(1) 
+            self.right_panel.set_current_class(2)
             
     def update_buttons_state(self):
         """버튼 활성화 상태 업데이트"""
