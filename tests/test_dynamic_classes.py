@@ -41,6 +41,7 @@ def test_assign_to_6_classes(mock_students_dynamic):
     assigner.together_groups = []
     assigner.target_class_count = target_count
     assigner.classes = {i: [] for i in range(1, target_count + 1)}
+    assigner.special_student_weight = 3.0
 
     # Phase 5 (balance remaining) simulates the full assignment for basic distribution
     assigner.phase5_balance_remaining()
@@ -65,6 +66,7 @@ def test_assign_to_8_classes(mock_students_dynamic):
     assigner.together_groups = []
     assigner.target_class_count = target_count
     assigner.classes = {i: [] for i in range(1, target_count + 1)}
+    assigner.special_student_weight = 3.0
 
     assigner.phase5_balance_remaining()
 

@@ -79,7 +79,8 @@ class TestInteractiveEditorGUI(unittest.TestCase):
         """Test if panels are initialized"""
         self.assertIsNotNone(self.gui.left_panel)
         self.assertIsNotNone(self.gui.right_panel)
-        self.assertEqual(self.gui.left_panel.class_list.count(), 7)
+        # 1 Placeholder + 7 Classes = 8 items
+        self.assertEqual(self.gui.left_panel.class_combo.count(), 8)
 
     def test_move_right_via_button(self):
         """Test moving Left -> Right via Button"""

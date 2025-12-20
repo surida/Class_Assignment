@@ -47,6 +47,7 @@ def phase2_assigner(mock_students_with_special):
     assigner.together_groups = []
     assigner.target_class_count = 7
     assigner.classes = {i: [] for i in range(1, 8)}
+    assigner.special_student_weight = 3.0
     return assigner
 
 
