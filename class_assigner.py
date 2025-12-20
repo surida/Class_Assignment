@@ -481,8 +481,11 @@ class ClassAssigner:
             result_file: 배정 결과 Excel 파일 경로
         """
         def is_empty(value):
-            """빈 셀 체크 (NaN과 빈 문자열 모두 처리)"""
-            return pd.isna(value) or (isinstance(value, str) and value.strip() == '')
+            """빈 셀 체크 (NaN, 빈 문자열, 헤더 키워드 처리)"""
+            if pd.isna(value): return True
+            s_val = str(value).strip()
+            # 헤더 키워드가 데이터 영역에 읽히는 경우 방지
+            return s_val == '' or s_val in ['이름', '남녀', '성별', '반', '번호', '학년', '점수', '비고']
 
         def get_safe(row, idx):
             """인덱스 범위 체크하여 안전하게 값 가져오기"""

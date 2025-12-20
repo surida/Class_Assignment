@@ -8,16 +8,16 @@ import os
 import threading
 from logger_config import logger  # Import logger
 import traceback
-from datetime import datetime
+from datetime import sys
 import logging
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QTextEdit, QFileDialog, QMessageBox, QFrame,
-    QSpinBox, QListWidget, QListWidgetItem, QLineEdit, QGroupBox,
-    QInputDialog, QAbstractItemView, QTreeWidget, QTreeWidgetItem,
-    QStyledItemDelegate, QStyleOptionViewItem, QStyle, QComboBox, QSplitter,
-    QGraphicsDropShadowEffect
-)
+import unicodedata
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QLabel, QListWidget, QPushButton, 
+                             QMessageBox, QFileDialog, QListWidgetItem, QFrame,
+                             QGraphicsDropShadowEffect, QComboBox, QStyledItemDelegate,
+                             QStyle, QTreeWidget, QTreeWidgetItem, QAbstractItemView,
+                             QHeaderView, QSplitter, QSpinBox, QTextEdit, QLineEdit,
+                             QGroupBox, QInputDialog, QStyleOptionViewItem)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QRect, QPoint
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter, QLinearGradient
 
@@ -660,7 +660,8 @@ class ClassPanel(QWidget):
                 item.setData(3, Qt.ItemDataRole.DisplayRole, student.점수)
                 
                 # Column 4: Difficulty
-                item.setText(4, str(student.난이도) if student.난이도 is not None else "")
+                diff = student.난이도
+                item.setText(4, str(diff) if diff and float(diff) != 0.0 else "")
 
                 # Store Student Object in UserRole (Accessible from all cols ideally, but root item is enough)
                 item.setData(0, Qt.ItemDataRole.UserRole, student) 
@@ -671,19 +672,41 @@ class ClassPanel(QWidget):
                 # 1. 분반 규칙 Check (Separation)
                 if student.이름 in self.assigner.separation_rules:
                      partners = self.assigner.separation_rules[student.이름]
-                     partner_str = ",".join(list(partners))
+                     # Format: "3반 홍길동"
+                     p_texts = []
+                     for p in partners:
+                         c_id = self._find_student_class_id(p)
+                         class_str = f"{c_id}반" if c_id else "미배정"
+                         p_texts.append(f"{class_str} {p}")
+                     
+                     partner_str = ",".join(p_texts)
                      badges.append((f"🚫 {partner_str}", "#F57F17", "#FFF9C4")) # Dark Yellow Bg
                 
                 # 2. 합반 규칙 Check (Together)
                 is_together = False
                 partners = set()
+                
+                # Normalize name for robust checking
+                s_name_nfc = unicodedata.normalize('NFC', student.이름.strip())
+
                 for group in self.assigner.together_groups:
-                    if student.이름 in group:
+                    # Check both raw and normalized name
+                    if student.이름 in group or s_name_nfc in group:
                         is_together = True
-                        partners = group - {student.이름}
+                        # Remove both forms to be safe
+                        partners = group - {student.이름, s_name_nfc}
                         break
+                
                 if is_together:
-                    partner_str = ",".join(list(partners)) if partners else ""
+                    p_texts = []
+                    for p in partners:
+                         # Normalize partner name for lookup
+                         p_clean = unicodedata.normalize('NFC', p.strip())
+                         c_id = self._find_student_class_id(p_clean)
+                         class_str = f"{c_id}반" if c_id else "미배정"
+                         p_texts.append(f"{class_str} {p}")
+
+                    partner_str = ",".join(p_texts) if p_texts else ""
                     badges.append((f"🤝 {partner_str}", "#1565C0", "#E3F2FD")) # Dark Blue Bg
 
                 # Badges for Transfer/Special
@@ -695,10 +718,22 @@ class ClassPanel(QWidget):
                 # Store Badges in UserRole + 1 of Column 5 (Info) (AND Column 0 just in case)
                 item.setData(5, Qt.ItemDataRole.UserRole + 1, badges)
                 # item.setData(5, Qt.ItemDataRole.DisplayRole, "") # No text, just badges
-
-
+        
         # 2. 통계 Refresh (Current View)
         self.update_statistics()
+
+    def _find_student_class_id(self, name):
+        """이름으로 학생의 현재 반 번호 찾기 (Unicode Normalization 적용)"""
+        if not name: return None
+        target_name = unicodedata.normalize('NFC', name.strip())
+        
+        for c_id, students in self.assigner.classes.items():
+            for s in students:
+                s_name_clean = unicodedata.normalize('NFC', s.이름.strip())
+                if s_name_clean == target_name:
+                    return c_id
+        
+        return None
 
     def update_combo_stats(self):
         """콤보박스 아이템들의 텍스트를 최신 통계로 업데이트"""
