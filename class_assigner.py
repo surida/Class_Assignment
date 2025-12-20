@@ -19,6 +19,13 @@ import os
 import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox
+import logging
+
+# Configure logger
+logger = logging.getLogger("ClassAssigner")
+import logging
+from datetime import datetime
+import traceback
 
 
 @dataclass
@@ -98,6 +105,7 @@ class ClassAssigner:
             print(f"   ℹ️  감지된 시트: {sheet_names}")
         except Exception as e:
             print(f"   ❌ 파일 읽기 오류: {e}")
+            logger.error(f"Error reading student file: {e}", exc_info=True)
             raise
 
         for sheet_name in sheet_names:
@@ -115,6 +123,7 @@ class ClassAssigner:
 
             except Exception as e:
                 print(f"   ⚠️  Error reading sheet '{sheet_name}': {e}")
+                logger.error(f"Error reading sheet '{sheet_name}': {e}", exc_info=True)
                 continue
 
             for _, row in df.iterrows():
@@ -153,86 +162,162 @@ class ClassAssigner:
         Returns:
             None (self.students, self.classes를 채움)
         """
+        logger, log_file = setup_logger()
+        
+        logger.info("=" * 70)
+        logger.info("배정 결과 파일 로드 시작")
+        logger.info(f"파일 경로: {result_file}")
+        logger.info(f"파일 존재 여부: {os.path.exists(result_file)}")
+        if os.path.exists(result_file):
+            logger.info(f"파일 크기: {os.path.getsize(result_file)} bytes")
+        
         print("\n📂 배정 결과 파일 로드 중...")
 
         try:
+            logger.info("ExcelFile 객체 생성 시도...")
             xl = pd.ExcelFile(result_file)
             sheet_names = xl.sheet_names
+            logger.info(f"감지된 시트 목록: {sheet_names}")
+            logger.info(f"총 시트 수: {len(sheet_names)}")
 
             # '요약', '규칙' 시트 제외
             exclude_sheets = ['요약', '규칙']
             class_sheets = [s for s in sheet_names if s not in exclude_sheets]
+            logger.info(f"반 시트 목록: {class_sheets}")
 
             if not class_sheets:
-                raise ValueError("배정 결과 파일에 반 시트가 없습니다.")
+                error_msg = "배정 결과 파일에 반 시트가 없습니다."
+                logger.error(error_msg)
+                logger.error(f"전체 시트: {sheet_names}")
+                raise ValueError(error_msg)
 
             print(f"   ℹ️  감지된 반: {class_sheets}")
 
             # 요약 시트에서 특수반 가중치 로드 시도
             if '요약' in sheet_names:
-                summary_ws = pd.read_excel(result_file, sheet_name='요약', header=None)
-                # J1="특수반 가중치", K1=값 (pandas는 0-index -> J=9, K=10)
-                # 첫 행(index 0)에 있는지 확인
-                if summary_ws.shape[1] > 10:
-                    val = summary_ws.iloc[0, 10]
-                    try:
-                        self.special_student_weight = float(val)
-                        print(f"   ⚖️ 특수반 가중치 로드: {self.special_student_weight}")
-                    except (ValueError, TypeError):
-                        pass
+                logger.info("요약 시트에서 특수반 가중치 로드 시도...")
+                try:
+                    summary_ws = pd.read_excel(result_file, sheet_name='요약', header=None)
+                    logger.info(f"요약 시트 크기: {summary_ws.shape}")
+                    # J1="특수반 가중치", K1=값 (pandas는 0-index -> J=9, K=10)
+                    # 첫 행(index 0)에 있는지 확인
+                    if summary_ws.shape[1] > 10:
+                        val = summary_ws.iloc[0, 10]
+                        logger.info(f"특수반 가중치 값 (원본): {val} (타입: {type(val)})")
+                        try:
+                            self.special_student_weight = float(val)
+                            logger.info(f"특수반 가중치 로드 성공: {self.special_student_weight}")
+                            print(f"   ⚖️ 특수반 가중치 로드: {self.special_student_weight}")
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Failed to parse special student weight from summary: {e}")
+                            pass
+                except Exception as e:
+                    logger.warning(f"요약 시트 읽기 실패: {e}")
 
             # target_class_count 자동 설정
             self.target_class_count = len(class_sheets)
             self.classes = {i: [] for i in range(1, self.target_class_count + 1)}
+            logger.info(f"목표 반 수: {self.target_class_count}")
 
             all_students = []
 
             # 각 반 시트 읽기
             for sheet_name in class_sheets:
-                # 시트 이름에서 반 번호 추출 (예: '6-1' → 1)
-                class_num = int(sheet_name.split('-')[1])
+                logger.info(f"시트 '{sheet_name}' 처리 시작...")
+                try:
+                    # 시트 이름에서 반 번호 추출 (예: '6-1' → 1)
+                    class_num_str = sheet_name.split('-')[1]
+                    class_num = int(class_num_str)
+                    logger.info(f"추출된 반 번호: {class_num}")
 
-                df = pd.read_excel(result_file, sheet_name=sheet_name)
+                    df = pd.read_excel(result_file, sheet_name=sheet_name)
+                    logger.info(f"시트 '{sheet_name}' 데이터프레임 크기: {df.shape}")
+                    logger.info(f"시트 '{sheet_name}' 컬럼: {list(df.columns)}")
 
-                for _, row in df.iterrows():
-                    # Student 객체 생성
-                    student = Student(
-                        학년=int(row['원학년']),      # 원학년 사용 (5)
-                        원반=int(row['원반']),
-                        원번호=int(row['원번호']),
-                        이름=str(row['이름']),
-                        성별=str(row['성별']),
-                        점수=float(row['점수']),
-                        특수반=row['특수반'],
-                        전출=row['전출'],
-                        난이도=row['난이도'],
-                        비고=row['비고'],
-                        assigned_class=class_num      # 이미 배정됨
-                    )
+                    row_count = 0
+                    for idx, row in df.iterrows():
+                        try:
+                            # Student 객체 생성
+                            logger.debug(f"행 {idx} 처리 중...")
+                            student = Student(
+                                학년=int(row['원학년']),      # 원학년 사용 (5)
+                                원반=int(row['원반']),
+                                원번호=int(row['원번호']),
+                                이름=str(row['이름']),
+                                성별=str(row['성별']),
+                                점수=float(row['점수']),
+                                특수반=row['특수반'],
+                                전출=row['전출'],
+                                난이도=row['난이도'],
+                                비고=row['비고'],
+                                assigned_class=class_num      # 이미 배정됨
+                            )
 
-                    all_students.append(student)
-                    self.classes[class_num].append(student)
+                            all_students.append(student)
+                            self.classes[class_num].append(student)
+                            row_count += 1
+                        except Exception as e:
+                            logger.error(f"행 {idx} 처리 중 오류 발생")
+                            logger.error(f"행 데이터: {dict(row)}")
+                            log_exception(logger, f"시트 '{sheet_name}' 행 {idx} 처리", e, {
+                                'sheet_name': sheet_name,
+                                'row_index': idx,
+                                'row_data': dict(row)
+                            })
+                            raise
+
+                    logger.info(f"시트 '{sheet_name}' 처리 완료: {row_count}명")
+                except Exception as e:
+                    logger.error(f"시트 '{sheet_name}' 처리 중 오류 발생")
+                    log_exception(logger, f"시트 '{sheet_name}' 읽기", e, {
+                        'sheet_name': sheet_name,
+                        'result_file': result_file
+                    })
+                    raise
 
             self.students = all_students
+            logger.info(f"총 학생 수: {len(self.students)}")
 
             # 성별별 등수 계산
+            logger.info("성별별 등수 계산 시작...")
             self._calculate_ranks()
+            logger.info("성별별 등수 계산 완료")
 
             print(f"   ✅ 총 {len(self.students)}명 로드 완료")
             print(f"   - {self.target_class_count}개 반")
             for i in range(1, self.target_class_count + 1):
                 print(f"     {i}반: {len(self.classes[i])}명")
+                logger.info(f"{i}반: {len(self.classes[i])}명")
 
             # 규칙 로드 (규칙 시트가 있으면)
             print()
             if '규칙' in sheet_names:
+                logger.info("규칙 시트 발견, 규칙 로드 시작...")
                 print("📋 Step 1: 분반/합반 규칙 로드 중...")
-                self._load_rules_from_sheet(result_file)
+                try:
+                    self._load_rules_from_sheet(result_file)
+                    logger.info("규칙 로드 완료")
+                except Exception as e:
+                    logger.error("규칙 로드 중 오류 발생")
+                    log_exception(logger, "규칙 시트 로드", e, {
+                        'result_file': result_file
+                    })
+                    raise
             else:
+                logger.warning("규칙 시트가 없습니다 (이전 버전 파일)")
                 print("   ⚠️  경고: 규칙 시트가 없습니다 (이전 버전 파일)")
 
+            logger.info("배정 결과 파일 로드 완료")
+            logger.info(f"로그 파일 위치: {log_file}")
+
         except Exception as e:
+            logger.error("배정 결과 파일 로드 실패")
+            log_exception(logger, "배정 결과 파일 로드", e, {
+                'result_file': result_file,
+                'file_exists': os.path.exists(result_file) if result_file else False
+            })
             print(f"   ❌ 파일 읽기 오류: {e}")
+            print(f"   📝 상세 로그가 저장되었습니다: {log_file}")
             raise
 
     @staticmethod
@@ -284,41 +369,60 @@ class ClassAssigner:
         """분반/합반 규칙 로드 및 검증"""
         print("\n📋 Step 1: 분반/합반 규칙 로드 중...")
 
-        df = pd.read_excel(self.rules_file, sheet_name='Sheet1')
+        try:
+            df = pd.read_excel(self.rules_file, sheet_name='Sheet1', header=None)
+        except ValueError:
+            # Sheet1이 없는 경우 첫 번째 시트 사용
+            df = pd.read_excel(self.rules_file, header=None)
 
-        # 분반 규칙 파싱 (첫 5개 열)
+        def get_safe(row, idx):
+            """인덱스 범위 체크하여 안전하게 값 가져오기"""
+            if idx < len(row):
+                return row.iloc[idx]
+            return None
+        
+        def is_empty(value):
+            """빈 셀 체크 (NaN과 빈 문자열 모두 처리)"""
+            return pd.isna(value) or (isinstance(value, str) and value.strip() == '')
+
+        # 분반 규칙 파싱 (columns 1, 4)
         separation_count = 0
         for idx, row in df.iterrows():
-            if idx == 0:  # 헤더 행 스킵
+            if idx == 0:  # 헤더(첫 행)라고 가정하고 스킵 (실제 데이터가 2행부터 시작하는 포맷일 경우)
+                # 만약 헤더가 없는 파일이라면 이 부분 조정 필요하나 기존 로직 유지
                 continue
 
-            student1_class = row['분반해야하는 학생']
-            student1_name = row['Unnamed: 1']
-            student2_class = row['Unnamed: 3']
-            student2_name = row['Unnamed: 4']
+            # 기존 코드: student1_name = row['Unnamed: 1'] -> index 1
+            student1_name = get_safe(row, 1)
+            # 기존 코드: student2_name = row['Unnamed: 4'] -> index 4
+            student2_name = get_safe(row, 4)
 
-            if pd.notna(student1_name) and pd.notna(student2_name):
-                self.separation_rules[student1_name].add(student2_name)
-                self.separation_rules[student2_name].add(student1_name)
-                self.separation_pairs.append((student1_name, student2_name))  # 쌍 저장
+            if not is_empty(student1_name) and not is_empty(student2_name):
+                name1 = str(student1_name).strip()
+                name2 = str(student2_name).strip()
+                self.separation_rules[name1].add(name2)
+                self.separation_rules[name2].add(name1)
+                self.separation_pairs.append((name1, name2))  # 쌍 저장
                 separation_count += 1
 
-        # 합반 규칙 파싱 (마지막 5개 열)
+        # 합반 규칙 파싱 (columns 7, 10)
         together_count = 0
         current_group = set()
         for idx, row in df.iterrows():
-            if idx == 0:  # 헤더 행 스킵
+            if idx == 0:
                 continue
 
-            student1_name = row['Unnamed: 7']  # 왼쪽 이름
-            student2_name = row['Unnamed: 10']  # 오른쪽 이름
+            # 기존 코드: student1_name = row['Unnamed: 7'] -> index 7
+            student1_name = get_safe(row, 7)
+            # 기존 코드: student2_name = row['Unnamed: 10'] -> index 10
+            student2_name = get_safe(row, 10)
 
             # 왼쪽 또는 오른쪽에 학생 이름이 있으면 그룹에 추가
-            if pd.notna(student1_name) or pd.notna(student2_name):
-                if pd.notna(student1_name):
-                    current_group.add(student1_name)
-                if pd.notna(student2_name):
-                    current_group.add(student2_name)
+            if not is_empty(student1_name) or not is_empty(student2_name):
+                if not is_empty(student1_name):
+                    current_group.add(str(student1_name).strip())
+                if not is_empty(student2_name):
+                    current_group.add(str(student2_name).strip())
             else:
                 # 둘 다 비어있으면 그룹 종료
                 if current_group:
@@ -380,6 +484,12 @@ class ClassAssigner:
             """빈 셀 체크 (NaN과 빈 문자열 모두 처리)"""
             return pd.isna(value) or (isinstance(value, str) and value.strip() == '')
 
+        def get_safe(row, idx):
+            """인덱스 범위 체크하여 안전하게 값 가져오기"""
+            if idx < len(row):
+                return row.iloc[idx]
+            return None
+
         # header=None으로 읽어서 첫 번째 행도 데이터로 취급
         df = pd.read_excel(result_file, sheet_name='규칙', header=None)
 
@@ -389,8 +499,8 @@ class ClassAssigner:
             if idx == 0:  # 헤더 스킵
                 continue
 
-            student1_name = row.iloc[1]  # Column B (index 1)
-            student2_name = row.iloc[4]  # Column E (index 4)
+            student1_name = get_safe(row, 1)  # Column B (index 1)
+            student2_name = get_safe(row, 4)  # Column E (index 4)
 
             # 빈 문자열도 체크하고 공백 제거
             if not is_empty(student1_name) and not is_empty(student2_name):
@@ -408,8 +518,8 @@ class ClassAssigner:
             if idx == 0:  # 헤더 스킵
                 continue
 
-            student1_name = row.iloc[7]   # Column H (index 7)
-            student2_name = row.iloc[10]  # Column K (index 10)
+            student1_name = get_safe(row, 7)   # Column H (index 7)
+            student2_name = get_safe(row, 10)  # Column K (index 10)
 
             # 빈 문자열도 빈 셀로 간주
             if not is_empty(student1_name) or not is_empty(student2_name):
@@ -1125,6 +1235,60 @@ def get_base_path():
     else:
         # 일반 Python 스크립트
         return os.path.dirname(os.path.abspath(__file__))
+
+
+def setup_logger():
+    """로거 설정 및 로그 파일 경로 반환"""
+    base_path = get_base_path()
+    log_dir = os.path.join(base_path, "logs")
+    
+    # logs 디렉토리 생성
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # 로그 파일명: 날짜_시간.log
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_dir, f"crash_log_{timestamp}.log")
+    
+    # 로거 설정
+    logger = logging.getLogger('ClassAssigner')
+    logger.setLevel(logging.DEBUG)
+    
+    # 기존 핸들러 제거 (중복 방지)
+    if logger.handlers:
+        logger.handlers.clear()
+    
+    # 파일 핸들러
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    
+    # 포맷터
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    
+    logger.addHandler(file_handler)
+    
+    return logger, log_file
+
+
+def log_exception(logger, operation, exception, context=None):
+    """예외를 로그에 기록"""
+    logger.error("=" * 70)
+    logger.error(f"오류 발생: {operation}")
+    logger.error(f"예외 타입: {type(exception).__name__}")
+    logger.error(f"예외 메시지: {str(exception)}")
+    
+    if context:
+        logger.error("컨텍스트 정보:")
+        for key, value in context.items():
+            logger.error(f"  {key}: {value}")
+    
+    logger.error("스택 트레이스:")
+    logger.error(traceback.format_exc())
+    logger.error("=" * 70)
 
 
 def select_file(title, filetypes, default_path=None, mode='open'):

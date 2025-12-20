@@ -6,6 +6,10 @@ PyQt6 기반 크로스플랫폼 사용자 인터페이스
 import sys
 import os
 import threading
+from logger_config import logger  # Import logger
+import traceback
+from datetime import datetime
+import logging
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QFileDialog, QMessageBox, QFrame,
@@ -48,7 +52,7 @@ def create_composite_icon(colors, size=16):
         
     painter.end()
     return QIcon(pixmap)
-from class_assigner import ClassAssigner, get_base_path
+from class_assigner import ClassAssigner, get_base_path, setup_logger, log_exception
 
 
 class ClassAssignerStartGUI(QMainWindow):
@@ -56,6 +60,7 @@ class ClassAssignerStartGUI(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        logger.info("ClassAssignerStartGUI Initialized")
         self.init_ui()
 
     def init_ui(self):
@@ -140,12 +145,18 @@ class ClassAssignerStartGUI(QMainWindow):
 
     def start_new_assignment(self):
         """기존 ClassAssignerGUI 실행"""
+        logger.info("Start New Assignment Button Clicked")
         self.assignment_gui = ClassAssignerGUI()
         self.assignment_gui.show()
         self.close()
 
     def load_result_file(self):
         """결과 파일 선택 → InteractiveEditorGUI 실행"""
+        logger.info("Load Result File Button Clicked")
+        logger, log_file = setup_logger()
+        logger.info("=" * 70)
+        logger.info("결과 파일 불러오기 시작")
+        
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "배정 결과 파일 선택",
@@ -154,27 +165,56 @@ class ClassAssignerStartGUI(QMainWindow):
         )
 
         if not file_path:
+            logger.info("파일 선택 취소됨")
             return
 
+        logger.info(f"Selected result file: {file_path}")
+        logger.info(f"파일 존재 여부: {os.path.exists(file_path)}")
+        if os.path.exists(file_path):
+            logger.info(f"파일 크기: {os.path.getsize(file_path)} bytes")
+
         # 파일 타입 검증
-        if not ClassAssigner.is_result_file(file_path):
-            QMessageBox.warning(
+        logger.info("파일 타입 검증 중...")
+        try:
+            is_result = ClassAssigner.is_result_file(file_path)
+            logger.info(f"배정 결과 파일 여부: {is_result}")
+            
+            if not is_result:
+                logger.warning("배정 결과 파일이 아님")
+                QMessageBox.warning(
+                    self,
+                    "오류",
+                    "배정 결과 파일이 아닙니다.\n'새로 시작'을 선택하세요."
+                )
+                return
+        except Exception as e:
+            logger.error("파일 타입 검증 중 오류 발생")
+            log_exception(logger, "파일 타입 검증", e, {
+                'file_path': file_path
+            })
+            QMessageBox.critical(
                 self,
                 "오류",
-                "배정 결과 파일이 아닙니다.\n'새로 시작'을 선택하세요."
+                f"파일 검증 중 오류가 발생했습니다:\n\n{str(e)}\n\n로그 파일: {log_file}"
             )
             return
 
         # InteractiveEditorGUI 실행
         try:
+            logger.info("Initializing InteractiveEditorGUI...")
             self.editor_gui = InteractiveEditorGUI(file_path)
             self.editor_gui.show()
             self.close()
+            logger.info("InteractiveEditorGUI 생성 및 표시 완료")
         except Exception as e:
+            logger.error(f"Failed to load InteractiveEditorGUI: {e}", exc_info=True)
+            log_exception(logger, "InteractiveEditorGUI 생성", e, {
+                'file_path': file_path
+            })
             QMessageBox.critical(
                 self,
                 "오류",
-                f"파일 로드 중 오류가 발생했습니다:\n\n{str(e)}"
+                f"파일 로드 중 오류가 발생했습니다:\n\n{str(e)}\n\n상세 로그가 저장되었습니다:\n{log_file}"
             )
 
 
@@ -576,6 +616,7 @@ class ClassPanel(QWidget):
 class ClassAssignerGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        logger.info("ClassAssignerGUI Initialized")
 
         # 파일 경로 저장
         self.student_file_path = None
@@ -830,6 +871,7 @@ class ClassAssignerGUI(QMainWindow):
 
     def load_default_files(self):
         """기본 파일 경로 로드"""
+        logger.info("Loading default files...")
         base_dir = os.getcwd()
         default_student = os.path.join(base_dir, "01 가상 명단.xlsx")
         default_rules = os.path.join(base_dir, "02 분반 합반할 학생 규칙.xlsx")
@@ -837,10 +879,16 @@ class ClassAssignerGUI(QMainWindow):
         if os.path.exists(default_student):
             self.student_file_path = default_student
             self.update_file_label(self.student_file_label, default_student)
+            logger.info(f"Default student file loaded: {default_student}")
+        else:
+            logger.warning(f"Default student file not found: {default_student}")
 
         if os.path.exists(default_rules):
             self.rules_file_path = default_rules
             self.update_file_label(self.rules_file_label, default_rules)
+            logger.info(f"Default rules file loaded: {default_rules}")
+        else:
+            logger.warning(f"Default rules file not found: {default_rules}")
 
     def update_file_label(self, label, filepath):
         """파일 라벨 업데이트"""
@@ -859,6 +907,7 @@ class ClassAssignerGUI(QMainWindow):
 
     def select_student_file(self):
         """5학년 명단 파일 선택"""
+        logger.info("Selecting student file...")
         initialdir = (os.path.dirname(self.student_file_path)
                      if self.student_file_path else get_base_path())
 
@@ -873,9 +922,13 @@ class ClassAssignerGUI(QMainWindow):
             self.student_file_path = filename
             self.update_file_label(self.student_file_label, filename)
             self.log_message(f"✅ 명단 파일 선택됨: {os.path.basename(filename)}")
+            logger.info(f"Student file selected: {filename}")
+        else:
+            logger.info("Student file selection cancelled.")
 
     def select_rules_file(self):
         """분반/합반 규칙 파일 선택"""
+        logger.info("Selecting rules file...")
         initialdir = (os.path.dirname(self.rules_file_path)
                      if self.rules_file_path else get_base_path())
 
@@ -890,6 +943,9 @@ class ClassAssignerGUI(QMainWindow):
             self.rules_file_path = filename
             self.update_file_label(self.rules_file_label, filename)
             self.log_message(f"✅ 규칙 파일 선택됨: {os.path.basename(filename)}")
+            logger.info(f"Rules file selected: {filename}")
+        else:
+            logger.info("Rules file selection cancelled.")
 
     def log_message(self, message):
         """진행 상황 로그 추가"""
@@ -901,18 +957,22 @@ class ClassAssignerGUI(QMainWindow):
 
     def execute_assignment(self):
         """학급 편성 실행"""
+        logger.info("Execute Assignment button clicked.")
         # 파일 경로 확인
         if not self.student_file_path or not os.path.exists(self.student_file_path):
             QMessageBox.critical(self, "오류", "학생 명단 파일을 선택해주세요.")
+            logger.warning("Student file not selected or does not exist.")
             return
 
         if not self.rules_file_path or not os.path.exists(self.rules_file_path):
             QMessageBox.critical(self, "오류", "분반/합반 규칙 파일을 선택해주세요.")
+            logger.warning("Rules file not selected or does not exist.")
             return
 
         # 출력 파일 경로
         output_dir = os.path.dirname(self.student_file_path)
         output_file = os.path.join(output_dir, '03 배정 결과.xlsx')
+        logger.info(f"Output file path set to: {output_file}")
 
         # UI 비활성화
         self.execute_btn.setEnabled(False)
@@ -921,6 +981,7 @@ class ClassAssignerGUI(QMainWindow):
         # 백그라운드 스레드 생성 및 실행
         target_count = self.class_count_spin.value()
         special_weight = self.weight_spin.value()
+        logger.info(f"Starting assignment with target_class_count={target_count}, special_student_weight={special_weight}")
         
         self.assignment_thread = AssignmentThread(
             self.student_file_path,
@@ -932,9 +993,11 @@ class ClassAssignerGUI(QMainWindow):
         self.assignment_thread.log_signal.connect(self.log_message)
         self.assignment_thread.finished_signal.connect(self.on_assignment_finished)
         self.assignment_thread.start()
+        logger.info("Assignment thread started.")
 
     def on_assignment_finished(self, success, message):
         """학급 편성 완료 처리"""
+        logger.info(f"Assignment finished. Success: {success}, Message: {message}")
         # UI 다시 활성화
         self.execute_btn.setEnabled(True)
 
@@ -949,15 +1012,28 @@ class ClassAssignerGUI(QMainWindow):
             )
 
             if reply == QMessageBox.StandardButton.Yes:
+                logger.info("User chose to move to InteractiveEditorGUI.")
                 # InteractiveEditorGUI로 전환
                 output_file = os.path.join(
                     os.path.dirname(self.student_file_path),
                     '03 배정 결과.xlsx'
                 )
-                self.editor_gui = InteractiveEditorGUI(output_file)
-                self.editor_gui.show()
-                self.close()
+                try:
+                    self.editor_gui = InteractiveEditorGUI(output_file)
+                    self.editor_gui.show()
+                    self.close()
+                    logger.info("InteractiveEditorGUI launched successfully.")
+                except Exception as e:
+                    logger.error(f"Failed to launch InteractiveEditorGUI after assignment: {e}", exc_info=True)
+                    QMessageBox.critical(
+                        self,
+                        "오류",
+                        f"수동 조정 화면 로드 중 오류가 발생했습니다:\n\n{str(e)}"
+                    )
+            else:
+                logger.info("User chose not to move to InteractiveEditorGUI.")
         else:
+            logger.error(f"Assignment failed: {message}")
             QMessageBox.critical(self, "오류", message)
 
 
@@ -966,16 +1042,38 @@ class InteractiveEditorGUI(QMainWindow):
 
     def __init__(self, result_file: str):
         super().__init__()
+        
+        logger, log_file = setup_logger()
+        logger.info("=" * 70)
+        logger.info("InteractiveEditorGUI 초기화 시작")
+        logger.info(f"결과 파일: {result_file}")
 
         # Assigner 로드
-        self.assigner = ClassAssigner(
-            student_file="",
-            rules_file="",
-            target_class_count=7
-        )
-        self.assigner.load_from_result(result_file)
-
-        self.init_ui()
+        try:
+            logger.info("ClassAssigner 객체 생성 중...")
+            self.assigner = ClassAssigner(
+                student_file="",
+                rules_file="",
+                target_class_count=7
+            )
+            logger.info("ClassAssigner 객체 생성 완료")
+            
+            logger.info("결과 파일 로드 시작...")
+            self.assigner.load_from_result(result_file)
+            logger.info("결과 파일 로드 완료")
+            
+            logger.info("UI 초기화 시작...")
+            self.init_ui()
+            logger.info("UI 초기화 완료")
+            logger.info(f"로그 파일 위치: {log_file}")
+            
+        except Exception as e:
+            logger.error("InteractiveEditorGUI 초기화 실패")
+            log_exception(logger, "InteractiveEditorGUI 초기화", e, {
+                'result_file': result_file
+            })
+            # 예외를 다시 발생시켜서 상위에서 처리하도록 함
+            raise
 
     def init_ui(self):
         """Symmetrical Layout"""
@@ -1081,10 +1179,12 @@ class InteractiveEditorGUI(QMainWindow):
 
     def on_btn_move_to_right(self):
         """왼쪽 -> 오른쪽 이동"""
+        logger.info(f"Move to Right button clicked. From class {self.left_panel.current_class_id} to {self.right_panel.current_class_id}")
         self._move_selected_students(self.left_panel, self.right_panel)
 
     def on_btn_move_to_left(self):
         """오른쪽 -> 왼쪽 이동"""
+        logger.info(f"Move to Left button clicked. From class {self.right_panel.current_class_id} to {self.left_panel.current_class_id}")
         self._move_selected_students(self.right_panel, self.left_panel)
 
     def _move_selected_students(self, source_panel, target_panel):
@@ -1093,11 +1193,13 @@ class InteractiveEditorGUI(QMainWindow):
         target_class = target_panel.current_class_id
         
         if source_class is None or target_class is None:
+            logger.warning("Move attempted with unselected source or target class.")
             return
             
         selected_items = source_panel.student_list.selectedItems()
         if not selected_items:
             QMessageBox.warning(self, "경고", "이동할 학생을 선택하세요.")
+            logger.warning("No students selected for move operation.")
             return
 
         success_count = 0
@@ -1105,11 +1207,14 @@ class InteractiveEditorGUI(QMainWindow):
         
         for item in selected_items:
             student = item.data(0, Qt.ItemDataRole.UserRole) # QTreeWidgetItem requires column index
+            logger.debug(f"Attempting to move student {student.이름} from {source_class} to {target_class}")
             success, msg = self._execute_move(student, source_class, target_class, silent=True)
             if success:
                 success_count += 1
+                logger.info(f"Successfully moved {student.이름} to class {target_class}")
             else:
                 error_messages.append(f"{student.이름}: {msg}")
+                logger.warning(f"Failed to move {student.이름}: {msg}")
         
         # UI Refresh
         self.left_panel.refresh_data()
@@ -1124,7 +1229,10 @@ class InteractiveEditorGUI(QMainWindow):
         source_class = getattr(source_widget, 'class_id', None)
         target_class = getattr(target_widget, 'class_id', None)
         
+        logger.info(f"Student dropped. Source class: {source_class}, Target class: {target_class}")
+
         if source_class is None or target_class is None or source_class == target_class:
+            logger.warning("Invalid drag & drop operation: source/target class unselected or same class.")
             return
             
         selected_items = source_widget.selectedItems()
@@ -1133,11 +1241,14 @@ class InteractiveEditorGUI(QMainWindow):
         
         for item in selected_items:
             student = item.data(0, Qt.ItemDataRole.UserRole)
+            logger.debug(f"Attempting to move student {student.이름} via drag & drop from {source_class} to {target_class}")
             success, msg = self._execute_move(student, source_class, target_class, silent=True)
             if success:
                  success_count += 1
+                 logger.info(f"Successfully moved {student.이름} to class {target_class} via drag & drop")
             else:
                  error_messages.append(f"{student.이름}: {msg}")
+                 logger.warning(f"Failed to move {student.이름} via drag & drop: {msg}")
 
         # Refresh
         self.left_panel.refresh_data()
@@ -1148,9 +1259,11 @@ class InteractiveEditorGUI(QMainWindow):
 
     def _execute_move(self, student, source_class, target_class, silent=False):
         """이동 실행 및 검증 (Centralized) -> Returns (success, message)"""
+        logger.debug(f"Executing move for {student.이름} from {source_class} to {target_class}")
         # 1. Validation
         if not self.assigner._can_assign(student, target_class):
              msg = "분반 규칙(가까운 사이 금지) 위반"
+             logger.warning(f"Move failed for {student.이름}: {msg}")
              if not silent: QMessageBox.warning(self, "이동 불가", msg)
              return False, msg
         
@@ -1158,6 +1271,7 @@ class InteractiveEditorGUI(QMainWindow):
         same_names = [s for s in self.assigner.classes[target_class] if s.이름 == student.이름]
         if same_names:
             msg = "동명이인 존재"
+            logger.warning(f"Move failed for {student.이름}: {msg}")
             if not silent: QMessageBox.warning(self, "이동 불가", msg)
             return False, msg
             
@@ -1170,6 +1284,7 @@ class InteractiveEditorGUI(QMainWindow):
 
         if together_group:
             group_names = list(together_group)
+            logger.warning(f"Together group rule detected for {student.이름}. Group: {group_names}")
             reply = QMessageBox.question(
                 self,
                 "합반 규칙 경고",
@@ -1179,6 +1294,7 @@ class InteractiveEditorGUI(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.No:
+                logger.info(f"Move cancelled for {student.이름} due to together group rule (user choice).")
                 return False, "합반 규칙 경고(사용자 취소)"
 
         # 2. Execution
@@ -1186,11 +1302,14 @@ class InteractiveEditorGUI(QMainWindow):
             self.assigner.classes[source_class].remove(student)
             student.assigned_class = target_class
             self.assigner.classes[target_class].append(student)
+            logger.info(f"Student {student.이름} successfully moved from {source_class} to {target_class}.")
             return True, "성공"
+        logger.error(f"Student {student.이름} not found in source class {source_class} during move operation.")
         return False, "학생 데이터 불일치"
         
     def export_to_excel(self):
         """Excel 파일로 내보내기"""
+        logger.info("Export to Excel button clicked.")
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "결과 파일 저장",
@@ -1199,6 +1318,7 @@ class InteractiveEditorGUI(QMainWindow):
         )
 
         if not file_path:
+            logger.info("Export to Excel cancelled by user.")
             return
 
         try:
@@ -1208,7 +1328,9 @@ class InteractiveEditorGUI(QMainWindow):
                 "완료",
                 f"✅ 파일이 저장되었습니다:\n\n{file_path}"
             )
+            logger.info(f"Results successfully exported to: {file_path}")
         except Exception as e:
+            logger.error(f"Error exporting results to Excel: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
                 "오류",
@@ -1218,11 +1340,16 @@ class InteractiveEditorGUI(QMainWindow):
 
 def main():
     """PyQt6 애플리케이션 실행"""
-    app = QApplication(sys.argv)
-    app.setStyle('Fusion')
-    window = ClassAssignerStartGUI()
-    window.show()
-    sys.exit(app.exec())
+    logger.info("Application Starting...")
+    try:
+        app = QApplication(sys.argv)
+        app.setStyle('Fusion')
+        window = ClassAssignerStartGUI()
+        window.show()
+        sys.exit(app.exec())
+    except Exception as e:
+        logger.critical("Critical Application Error in Main Loop", exc_info=True)
+        raise
 
 
 if __name__ == '__main__':
