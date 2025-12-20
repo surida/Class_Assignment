@@ -656,12 +656,12 @@ class ClassPanel(QWidget):
                 # Column 2: Gender
                 item.setText(2, student.성별)
                 
-                # Column 3: Score (Sortable Number)
-                item.setData(3, Qt.ItemDataRole.DisplayRole, student.점수)
+                # Column 3: Score (Display as Int, Sort as Number)
+                item.setData(3, Qt.ItemDataRole.DisplayRole, int(student.점수) if student.점수 else 0)
                 
                 # Column 4: Difficulty
                 diff = student.난이도
-                item.setText(4, str(diff) if diff and float(diff) != 0.0 else "")
+                item.setText(4, str(int(diff)) if diff and float(diff) != 0.0 else "")
 
                 # Store Student Object in UserRole (Accessible from all cols ideally, but root item is enough)
                 item.setData(0, Qt.ItemDataRole.UserRole, student) 
@@ -749,7 +749,7 @@ class ClassPanel(QWidget):
                 female = sum(1 for s in students if s.성별 == '여')
                 
                 # Format: "1반 - 총 22 (유효 21) | 남 10 여 12"
-                new_text = f"{class_id}반 - 총 {total}명 (유효 {effective}) | 남 {male} 여 {female}"
+                new_text = f"{class_id}반 - 총 {total}명 (유효 {int(effective)}) | 남 {male} 여 {female}"
                 self.class_combo.setItemText(i, new_text)
 
     def update_statistics(self):
@@ -764,7 +764,7 @@ class ClassPanel(QWidget):
         
         # Simple One-Liner (Stats Label is strict text, Combo has the details now too)
         stats_text = (
-            f"총 {len(students)}명 (유효 {effective_count})  |  "
+            f"총 {len(students)}명 (유효 {int(effective_count)})  |  "
             f"남 {male_count}  ·  여 {female_count}"
         )
         self.stats_label.setText(stats_text)
