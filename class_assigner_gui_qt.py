@@ -391,13 +391,13 @@ class ModernTableDelegate(QStyledItemDelegate):
                 badge_y = rect.center().y()
                 
                 font = painter.font()
-                font.setPointSize(9)
+                font.setPointSize(11) # Increased from 9
                 painter.setFont(font)
 
                 for b_text, bg_c, txt_c in badges:
                     fm = painter.fontMetrics()
-                    b_w = fm.horizontalAdvance(b_text) + 12
-                    b_h = 18
+                    b_w = fm.horizontalAdvance(b_text) + 16 # Slightly more padding
+                    b_h = 24 # Increased from 18
                     
                     b_rect = QRect(badge_x, badge_y - b_h//2, b_w, b_h)
                     
@@ -597,7 +597,7 @@ class ClassPanel(QWidget):
 
         # 2. Stats Line (Inline)
         self.stats_label = QLabel("반을 선택해주세요")
-        self.stats_label.setFont(QFont("", 10))
+        self.stats_label.setFont(QFont("", 12)) # Increased from 10
         self.stats_label.setStyleSheet("color: #B0BEC5;") # Light Blue Grey
         layout.addWidget(self.stats_label)
 
@@ -751,6 +751,9 @@ class ClassPanel(QWidget):
         
         # 2. 통계 Refresh (Current View)
         self.update_statistics()
+
+        # 3. Default Sort: Column 0 (Number) Ascending
+        self.student_list.sortItems(0, Qt.SortOrder.AscendingOrder)
 
     def _find_student_class_id(self, name):
         """이름으로 학생의 현재 반 번호 찾기 (Unicode Normalization 적용)"""

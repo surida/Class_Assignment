@@ -199,18 +199,29 @@ class ClassAssigner:
                 try:
                     summary_ws = pd.read_excel(result_file, sheet_name='요약', header=None)
                     logger.info(f"요약 시트 크기: {summary_ws.shape}")
-                    # J1="특수반 가중치", K1=값 (pandas는 0-index -> J=9, K=10)
-                    # 첫 행(index 0)에 있는지 확인
-                    if summary_ws.shape[1] > 10:
-                        val = summary_ws.iloc[0, 10]
-                        logger.info(f"특수반 가중치 값 (원본): {val} (타입: {type(val)})")
-                        try:
-                            self.special_student_weight = float(val)
-                            logger.info(f"특수반 가중치 로드 성공: {self.special_student_weight}")
-                            print(f"   ⚖️ 특수반 가중치 로드: {self.special_student_weight}")
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"Failed to parse special student weight from summary: {e}")
-                            pass
+                    # 특수반 가중치 로드 (Dynamic Search)
+                    # 요약 시트 내에서 '특수반 가중치' 텍스트가 있는 셀을 찾고, 그 오른쪽 값을 읽음
+                    found_weight = False
+                    for r in range(summary_ws.shape[0]):
+                        for c in range(summary_ws.shape[1]):
+                            cell_val = str(summary_ws.iloc[r, c]).strip()
+                            if cell_val == "특수반 가중치":
+                                if c + 1 < summary_ws.shape[1]:
+                                    val = summary_ws.iloc[r, c + 1]
+                                    logger.info(f"특수반 가중치 값 발견 (Row {r}, Col {c}): {val}")
+                                    try:
+                                        self.special_student_weight = float(val)
+                                        found_weight = True
+                                        logger.info(f"특수반 가중치 로드 성공: {self.special_student_weight}")
+                                        print(f"   ⚖️ 특수반 가중치 로드: {self.special_student_weight}")
+                                    except (ValueError, TypeError) as e:
+                                        logger.warning(f"값 변환 실패: {e}")
+                                break
+                        if found_weight:
+                            break
+                    
+                    if not found_weight:
+                        logger.warning("요약 시트에서 '특수반 가중치' 라벨을 찾을 수 없습니다.")
                 except Exception as e:
                     logger.warning(f"요약 시트 읽기 실패: {e}")
 
@@ -1108,8 +1119,19 @@ class ClassAssigner:
         ws_summary.column_dimensions['A'].width = 10
         
         # 범례(Legend) 추가
-        # 범례(Legend) 추가
-        legend_start_row = len(summary_data) + 5
+        legend_start_row = len(summary_data) + 6 # Give space for Weight Info
+
+        # 특수반 가중치 표시 (요약 표 아래, 범례 위, 특수반수 컬럼 근처)
+        weight_row = len(summary_data) + 3
+        # Col 9 is '특수반수', Col 10 is '전출생수'
+        ws_summary.cell(row=weight_row, column=9, value="특수반 가중치").font = Font(bold=True)
+        ws_summary.cell(row=weight_row, column=9).fill = HEADER_FILL
+        ws_summary.cell(row=weight_row, column=9).border = THIN_BORDER
+        ws_summary.cell(row=weight_row, column=9).alignment = CENTER_ALIGN
+        
+        ws_summary.cell(row=weight_row, column=10, value=self.special_student_weight).border = THIN_BORDER
+        ws_summary.cell(row=weight_row, column=10).alignment = CENTER_ALIGN
+
         ws_summary.cell(row=legend_start_row, column=1, value="[상태 아이콘]").font = Font(bold=True, size=12)
 
         # Helper to add legend item with colored circle
@@ -1131,13 +1153,6 @@ class ClassAssigner:
         
         # 4. 전출 (Gray)
         add_legend_row(legend_start_row + 4, "9E9E9E", "전출 (Transferred)")
-
-        # 기존 특수반 가중치 (Keep)
-        ws_summary.cell(row=1, column=10, value="특수반 가중치").font = HEADER_FONT
-        ws_summary.cell(row=1, column=10).fill = HEADER_FILL
-        ws_summary.cell(row=1, column=10).border = THIN_BORDER
-        ws_summary.cell(row=1, column=11, value=self.special_student_weight).border = THIN_BORDER
-        ws_summary.cell(row=1, column=11).alignment = CENTER_ALIGN
 
         # ==================== 규칙 시트 생성 ====================
         rules_ws = wb.create_sheet(title='규칙')
