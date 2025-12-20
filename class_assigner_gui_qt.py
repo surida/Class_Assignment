@@ -154,7 +154,7 @@ class ClassAssignerStartGUI(QMainWindow):
     def load_result_file(self):
         """결과 파일 선택 → InteractiveEditorGUI 실행"""
         logger.info("Load Result File Button Clicked")
-        logger, log_file = setup_logger()
+        _logger, log_file = setup_logger()
         logger.info("=" * 70)
         logger.info("결과 파일 불러오기 시작")
         
@@ -536,15 +536,45 @@ class ClassPanel(QWidget):
         self.class_combo.setFont(QFont("", 14, QFont.Weight.Bold))
         self.class_combo.setStyleSheet("""
             QComboBox {
-                border: none;
-                background: transparent;
-                padding: 0px;
-                selection-background-color: transparent;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #333333;
+                padding: 5px 10px;
+                min-width: 150px;
                 color: #FFFFFF;
             }
+            QComboBox:hover {
+                border: 1px solid #2196F3;
+                background-color: #424242;
+            }
             QComboBox::drop-down {
-                border: none;
-                width: 20px;
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 25px;
+                border-left-width: 1px;
+                border-left-color: #555555;
+                border-left-style: solid;
+                border-top-right-radius: 3px;
+                border-bottom-right-radius: 3px;
+            }
+            QComboBox::down-arrow {
+                image: url(none); /* Remove default if needed, or use a custom arrow */
+                /* Draw a simple arrow using borders or use a standard icon if available.
+                   Since we don't have an icon asset handy, let's use a unicode text or standard styling
+                   Qt usually draws a default arrow if "image" is not set to none.
+                   Let's rely on default but style the area.
+                */
+                width: 0; 
+                height: 0;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #CCCCCC;
+                margin-top: 2px;
+                margin-right: 2px;
+            }
+            QComboBox::down-arrow:on { /* shift the arrow when popup is open */
+                top: 1px;
+                left: 1px;
             }
             QComboBox QAbstractItemView {
                 background-color: #424242;
@@ -748,8 +778,8 @@ class ClassPanel(QWidget):
                 male = sum(1 for s in students if s.성별 == '남')
                 female = sum(1 for s in students if s.성별 == '여')
                 
-                # Format: "1반 - 총 22 (유효 21) | 남 10 여 12"
-                new_text = f"{class_id}반 - 총 {total}명 (유효 {int(effective)}) | 남 {male} 여 {female}"
+                # Format: "1반 - 22 (유효 21) | 남 10 여 12"
+                new_text = f"{class_id}반 - {total}명 (유효 {int(effective)}) | 남 {male} 여 {female}"
                 self.class_combo.setItemText(i, new_text)
 
     def update_statistics(self):
@@ -758,14 +788,14 @@ class ClassPanel(QWidget):
 
         students = self.assigner.classes[self.current_class_id]
         
-        male_count = sum(1 for s in students if s.성별 == '남')
-        female_count = sum(1 for s in students if s.성별 == '여')
-        effective_count = self.assigner._get_effective_count(self.current_class_id)
+        special_count = sum(1 for s in students if s.특수반)
+        transfer_count = sum(1 for s in students if s.전출)
+        difficulty_sum = sum(s.난이도 for s in students)
         
-        # Simple One-Liner (Stats Label is strict text, Combo has the details now too)
+        # Update: Show Special, Transfer, and Difficulty Sum (User Request)
         stats_text = (
-            f"총 {len(students)}명 (유효 {int(effective_count)})  |  "
-            f"남 {male_count}  ·  여 {female_count}"
+            f"특수 {special_count}  ·  전출 {transfer_count}  |  "
+            f"난이도 합 {int(difficulty_sum)}"
         )
         self.stats_label.setText(stats_text)
 
