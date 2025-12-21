@@ -3,6 +3,9 @@
 PyQt6 기반 크로스플랫폼 사용자 인터페이스
 """
 
+# Version Information
+VERSION = "v2.6"  # Update this for each release
+
 import sys
 import os
 import threading
@@ -65,7 +68,7 @@ class ClassAssignerStartGUI(QMainWindow):
 
     def init_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("🎓 자동 학급 편성 프로그램")
+        self.setWindowTitle(f"🎓 자동 학급 편성 프로그램 - {VERSION}")
         self.setGeometry(100, 100, 500, 400)
 
         # 중앙 위젯
@@ -142,6 +145,12 @@ class ClassAssignerStartGUI(QMainWindow):
         layout.addWidget(load_btn)
 
         layout.addStretch()
+        
+        # Version footer
+        version_label = QLabel(f"Version: {VERSION}")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setStyleSheet("color: #666666; font-size: 10px;")
+        layout.addWidget(version_label)
 
     def start_new_assignment(self):
         """기존 ClassAssignerGUI 실행"""
@@ -881,7 +890,7 @@ class ClassAssignerGUI(QMainWindow):
 
     def init_ui(self):
         """UI 초기화"""
-        self.setWindowTitle("🎓 자동 학급 편성 프로그램")
+        self.setWindowTitle(f"🎓 자동 학급 편성 프로그램 - {VERSION}")
         self.setGeometry(100, 100, 700, 600)
 
         # 중앙 위젯
@@ -961,6 +970,12 @@ class ClassAssignerGUI(QMainWindow):
 
         # 초기 메시지
         self.log_message("대기 중... 파일을 선택하고 '학급 편성 시작' 버튼을 눌러주세요.")
+        
+        # Version footer
+        version_label = QLabel(f"Version: {VERSION}")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setStyleSheet("color: #666666; font-size: 10px; margin-top: 5px;")
+        main_layout.addWidget(version_label)
 
     def create_file_section(self):
         """파일 선택 섹션 생성"""
@@ -1327,7 +1342,7 @@ class InteractiveEditorGUI(QMainWindow):
 
     def init_ui(self):
         """Symmetrical Layout"""
-        self.setWindowTitle("🎓 학급 편성 수동 조정")
+        self.setWindowTitle(f"🎓 학급 편성 수동 조정 - {VERSION}")
         self.setGeometry(100, 100, 1200, 700) # 너비 확장
 
         # 메인 위젯
@@ -1403,6 +1418,12 @@ class InteractiveEditorGUI(QMainWindow):
         export_btn.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold;")
         export_btn.clicked.connect(self.export_to_excel)
         right_sidebar.addWidget(export_btn)
+        
+        # Version footer
+        version_label = QLabel(f"v{VERSION}")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setStyleSheet("color: #999999; font-size: 9px; margin-top: 5px;")
+        right_sidebar.addWidget(version_label)
         
         main_layout.addLayout(right_sidebar)
 
