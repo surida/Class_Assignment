@@ -8,7 +8,6 @@ import os
 import threading
 from logger_config import logger  # Import logger
 import traceback
-from datetime import sys
 import logging
 import unicodedata
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
