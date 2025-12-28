@@ -353,7 +353,7 @@ class StatusDelegate(QStyledItemDelegate):
 
 class ModernTableDelegate(QStyledItemDelegate):
     """
-    Modern Dark Mode Table Delegate
+    시스템 테마를 따르는 테이블 Delegate
     Handles badges in Column 5 and general styling
     """
     def sizeHint(self, option, index):
@@ -363,27 +363,27 @@ class ModernTableDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 1. Background (Selection / Hover)
+        # 1. Background (Selection / Hover) - 시스템 팔레트 사용
         rect = option.rect
 
-        # 다크모드 고정 색상 사용 (Windows 호환성 - 시스템 팔레트 무시)
         if option.state & QStyle.StateFlag.State_Selected:
-            bg_color = QColor("#1976D2")  # 파란색 선택 배경
-            text_color = QColor("#FFFFFF")  # 흰색 텍스트
+            bg_color = option.palette.highlight().color()
+            text_color = option.palette.highlightedText().color()
         elif option.state & QStyle.StateFlag.State_MouseOver:
-            bg_color = QColor("#424242")  # 호버 배경
-            text_color = QColor("#E0E0E0")  # 밝은 회색 텍스트
+            # 호버: Base 색상을 약간 조정
+            base = option.palette.base().color()
+            if base.lightness() > 128:
+                bg_color = base.darker(110)
+            else:
+                bg_color = base.lighter(120)
+            text_color = option.palette.text().color()
         else:
-            # 기본 다크 배경
-            bg_color = QColor("#2D2D2D")
-            text_color = QColor("#E0E0E0")  # 밝은 회색 텍스트
+            bg_color = option.palette.base().color()
+            text_color = option.palette.text().color()
 
-        # Alternate Row Colors (Optional, manually if needed, or rely on widget)
-        # For a clean look, just use Base.
-        
         # Draw Background
         painter.fillRect(rect, bg_color)
-        
+
         # Draw Border (Bottom Line) - Use Mid/MidLight color
         painter.setPen(option.palette.midlight().color())
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
@@ -466,31 +466,16 @@ class StudentTreeWidget(QTreeWidget):
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
         
         self.setMouseTracking(True)
-        
-        # Style - 명시적 텍스트 색상 지정 (Windows 호환성)
+
+        # 시스템 테마를 따르는 최소한의 스타일 (배경/텍스트 색상은 시스템 팔레트 사용)
         self.setStyleSheet("""
             QTreeWidget {
-                background-color: #2D2D2D;
-                color: #E0E0E0;
-                border: none;
-                gridline-color: #424242;
-            }
-            QTreeWidget::item {
-                color: #E0E0E0;
-            }
-            QTreeWidget::item:selected {
-                background-color: #1976D2;
-                color: #FFFFFF;
-            }
-            QTreeWidget::item:hover {
-                background-color: #424242;
+                border: 1px solid palette(mid);
             }
             QHeaderView::section {
-                background-color: #1E1E1E;
-                color: #B0BEC5;
                 padding: 4px;
                 border: none;
-                border-bottom: 2px solid #424242;
+                border-bottom: 1px solid palette(mid);
                 font-weight: bold;
             }
         """)
@@ -609,13 +594,12 @@ class ClassPanel(QWidget):
         layout.setSpacing(10)
         layout.setContentsMargins(15, 15, 15, 15)
 
-        # Apply Card Style to self (Dark Mode)
+        # 시스템 테마를 따르는 카드 스타일
         self.setObjectName("ClassPanel")
         self.setStyleSheet("""
             QWidget#ClassPanel {
-                background-color: #2D2D2D;
                 border-radius: 12px;
-                border: 1px solid #424242;
+                border: 1px solid palette(mid);
             }
         """)
 
@@ -626,52 +610,16 @@ class ClassPanel(QWidget):
         self.class_combo = QComboBox()
         self.class_combo.setMinimumWidth(100)
         self.class_combo.setFont(QFont("", 14, QFont.Weight.Bold))
+        # 시스템 테마를 따르는 콤보박스 스타일
         self.class_combo.setStyleSheet("""
             QComboBox {
-                border: 1px solid #555555;
+                border: 1px solid palette(mid);
                 border-radius: 4px;
-                background-color: #333333;
                 padding: 5px 10px;
                 min-width: 150px;
-                color: #FFFFFF;
             }
             QComboBox:hover {
-                border: 1px solid #2196F3;
-                background-color: #424242;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 25px;
-                border-left-width: 1px;
-                border-left-color: #555555;
-                border-left-style: solid;
-                border-top-right-radius: 3px;
-                border-bottom-right-radius: 3px;
-            }
-            QComboBox::down-arrow {
-                image: url(none); /* Remove default if needed, or use a custom arrow */
-                /* Draw a simple arrow using borders or use a standard icon if available.
-                   Since we don't have an icon asset handy, let's use a unicode text or standard styling
-                   Qt usually draws a default arrow if "image" is not set to none.
-                   Let's rely on default but style the area.
-                */
-                width: 0; 
-                height: 0;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #CCCCCC;
-                margin-top: 2px;
-                margin-right: 2px;
-            }
-            QComboBox::down-arrow:on { /* shift the arrow when popup is open */
-                top: 1px;
-                left: 1px;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #424242;
-                color: white;
-                selection-background-color: #2196F3;
+                border: 1px solid palette(highlight);
             }
         """)
         
@@ -690,14 +638,13 @@ class ClassPanel(QWidget):
         # 2. Stats Line (Inline)
         self.stats_label = QLabel("반을 선택해주세요")
         self.stats_label.setFont(QFont("", 12)) # Increased from 10
-        self.stats_label.setStyleSheet("color: #B0BEC5;") # Light Blue Grey
+        # 시스템 팔레트 사용 (별도 색상 지정 없음)
         layout.addWidget(self.stats_label)
 
         # Divider
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Plain)
-        line.setStyleSheet("background-color: #424242;") # Dark Divider
+        line.setFrameShadow(QFrame.Shadow.Sunken)
         line.setFixedHeight(1)
         layout.addWidget(line)
 
@@ -706,24 +653,7 @@ class ClassPanel(QWidget):
         self.student_list.item_dropped.connect(self.student_dropped.emit) # Pass through to parent
         self.student_list.order_changed.connect(self.order_changed.emit) # Pass through to parent
         
-        # Custom Scrollbar Style for the List
-        scroll_style = """
-             QScrollBar:vertical {
-                border: none;
-                background: #2D2D2D;
-                width: 8px;
-                margin: 0px 0 0px 0;
-            }
-            QScrollBar::handle:vertical {
-                background: #616161;
-                min-height: 20px;
-                border-radius: 4px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-        """
-        self.student_list.verticalScrollBar().setStyleSheet(scroll_style)
+        # 스크롤바는 시스템 기본 스타일 사용
         
         layout.addWidget(self.student_list)
 
