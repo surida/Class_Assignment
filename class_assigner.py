@@ -182,8 +182,34 @@ class ClassAssigner:
 
             # '요약', '규칙' 시트 제외
             exclude_sheets = ['요약', '규칙']
-            class_sheets = [s for s in sheet_names if s not in exclude_sheets]
-            logger.info(f"반 시트 목록: {class_sheets}")
+            candidate_sheets = [s for s in sheet_names if s not in exclude_sheets]
+            
+            # Smart Grade Detection: 
+            # 1. Parse all "Grade-Class" formatted sheets
+            # 2. Identify the Target Grade (Highest Grade)
+            # 3. Only load sheets belonging to the Target Grade
+            import re
+            sheet_pattern = re.compile(r'^(\d+)-(\d+)$')
+            
+            grade_sheets = defaultdict(list)
+            for s in candidate_sheets:
+                match = sheet_pattern.match(s)
+                if match:
+                    grade = int(match.group(1))
+                    grade_sheets[grade].append(s)
+            
+            if not grade_sheets:
+                 error_msg = "배정 결과 파일에 유효한 반 시트(N-N 형식)가 없습니다."
+                 logger.error(error_msg)
+                 raise ValueError(error_msg)
+                 
+            # Target Grade is the highest grade found (e.g., 6 in [5, 6])
+            target_grade = max(grade_sheets.keys())
+            class_sheets = grade_sheets[target_grade]
+            
+            logger.info(f"감지된 학년 목록: {list(grade_sheets.keys())}")
+            logger.info(f"대상 학년(최고학년): {target_grade}")
+            logger.info(f"로드 대상 반 시트: {class_sheets}")
 
             if not class_sheets:
                 error_msg = "배정 결과 파일에 반 시트가 없습니다."
@@ -361,6 +387,73 @@ class ClassAssigner:
             return False
         except:
             return False
+
+    def _create_submission_sheets(self, wb, base_grade: int, student_new_numbers: Dict[str, int]):
+        """
+        학교 제출용 출석부 시트(이전 학년 기준) 생성
+        예: '5-1', '5-2' ...
+
+        Args:
+            wb: OpenPyXL Workbook
+            base_grade: 이전 학년 (예: 5)
+            student_new_numbers: {이름: 배정된_반_번호} 매핑
+        """
+        print(f"\n📋 {base_grade}학년 제출용 시트 생성 중...")
+        
+        # 1. Group students by original class
+        origin_classes = defaultdict(list)
+        for s in self.students:
+            origin_classes[s.원반].append(s)
+            
+        # 2. Create sheet for each original class
+        # header style
+        THIN_BORDER = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        HEADER_FONT = Font(bold=True)
+        HEADER_FILL = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+        CENTER_ALIGN = Alignment(horizontal='center', vertical='center')
+
+        sorted_classes = sorted(origin_classes.keys())
+        for class_num in sorted_classes:
+            sheet_title = f"{base_grade}-{class_num}"
+            ws = wb.create_sheet(title=sheet_title)
+            
+            # Headers
+            headers = ['학년', '반', '번호', '이름', '성별', '배정반', '배정번호']
+            ws.append(headers)
+            
+            # Sort students by original number
+            students = sorted(origin_classes[class_num], key=lambda s: s.원번호)
+            
+            for s in students:
+                new_number = student_new_numbers.get(s.이름, '')
+                ws.append([
+                    s.학년,         # 5학년
+                    s.원반,         # 1반
+                    s.원번호,       # 1번
+                    s.이름,
+                    s.성별,
+                    s.assigned_class if s.assigned_class else "미배정",
+                    new_number
+                ])
+                
+            # Styling
+            # Header
+            for cell in ws[1]:
+                cell.font = HEADER_FONT
+                cell.fill = HEADER_FILL
+                cell.alignment = CENTER_ALIGN
+                cell.border = THIN_BORDER
+                
+            # Body
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    cell.border = THIN_BORDER
+                    cell.alignment = CENTER_ALIGN
+            
+            # Widths
+            ws.column_dimensions['D'].width = 12 # Name
+            
+            print(f"   ✅ {sheet_title} 시트 생성 완료")
 
     def _calculate_ranks(self):
         """성별별 등수 계산"""
@@ -1207,6 +1300,20 @@ class ClassAssigner:
             cell.alignment = Alignment(horizontal='center', vertical='center')
 
         print(f"   ✅ 규칙 시트 추가: 분반 {len(self.separation_pairs)}쌍, 합반 {len(self.together_groups)}그룹")
+
+        # ==================== 5학년 제출용 시트 생성 ====================
+        # 학생들의 새로운 반 번호(가나다순) 매핑 생성
+        # generate_output 앞부분에서 정렬된 상태를 기준으로 함
+        # 위 반복문에서 students는 이미 정렬되어 있음. 그러나 loop scope 문제로 다시 계산 필요.
+        
+        student_new_numbers = {}
+        for class_num in range(1, self.target_class_count + 1):
+            # 위에서 정렬 로직과 동일해야 함
+            c_students = sorted(self.classes[class_num], key=lambda s: s.이름)
+            for idx, s in enumerate(c_students, 1):
+                student_new_numbers[s.이름] = idx
+        
+        self._create_submission_sheets(wb, base_grade, student_new_numbers)
 
         # 파일 저장
         wb.save(output_file)
