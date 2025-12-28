@@ -84,3 +84,53 @@ def test_smart_loading(temp_files):
         assert s.assigned_class is not None
         
     print("Smart loading validation successful")
+
+def test_transfer_student_sorting(temp_files):
+    student_file, rules_file, output_file = temp_files
+    
+    # Modify data to have transfers
+    df = pd.read_excel(student_file)
+    # Make the first student in name order (Student_1_10?) a transfer student
+    # Note: Sorting is by Name. 
+    # Let's pick a student who would normally be first, and make them transfer.
+    # Names are "학생_1_1", "학생_1_10"...
+    # "학생_1_1" comes before "학생_1_2".
+    
+    # Let's explicitly set a name '가학생' to be transfer, and '나학생' to be normal.
+    # '가학생' should end up AFTER '나학생'.
+    
+    df.loc[0, '이름'] = '가학생' # Normal sorts first
+    df.loc[0, '전출'] = True   # But is transfer
+    
+    df.loc[1, '이름'] = '나학생'
+    df.loc[1, '전출'] = False
+    
+    df.to_excel(student_file, index=False)
+    
+    assigner = ClassAssigner(student_file, rules_file, target_class_count=1) # 1 class to force them together
+    assigner.run(output_file)
+    
+    xl = pd.ExcelFile(output_file)
+    # Check 6-1 sheet (assigned class)
+    df_result = pd.read_excel(output_file, sheet_name="6-1")
+    
+    # We expect '나학생' to come before '가학생' because '가학생' is transfer
+    names = df_result['이름'].tolist()
+    print(f"Sorted names: {names}")
+    
+    idx_ga = names.index('가학생')
+    idx_na = names.index('나학생')
+    
+    assert idx_na < idx_ga, "Normal student should come before Transfer student regardless of name"
+    
+    # Also check the assigned number in 5-n sheet
+    # '가학생' was originally class 1.
+    df_5_1 = pd.read_excel(output_file, sheet_name="5-1")
+    
+    # Find row for 가학생
+    row_ga = df_5_1[df_5_1['이름'] == '가학생'].iloc[0]
+    row_na = df_5_1[df_5_1['이름'] == '나학생'].iloc[0]
+    
+    # Assigned number should be higher for Ga (Transfer) than Na
+    assert row_ga['배정번호'] > row_na['배정번호']
+

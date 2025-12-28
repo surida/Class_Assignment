@@ -1057,8 +1057,8 @@ class ClassAssigner:
         for class_num in range(1, self.target_class_count + 1):
             students = self.classes[class_num]
 
-            # 이름 가나다순 정렬
-            students.sort(key=lambda s: s.이름)
+            # 정렬: 전출생(1)은 맨 뒤로, 그 외(0)는 이름순
+            students.sort(key=lambda s: (1 if s.전출 else 0, s.이름))
 
             # 데이터프레임 생성
             data = []
@@ -1308,8 +1308,8 @@ class ClassAssigner:
         
         student_new_numbers = {}
         for class_num in range(1, self.target_class_count + 1):
-            # 위에서 정렬 로직과 동일해야 함
-            c_students = sorted(self.classes[class_num], key=lambda s: s.이름)
+            # 위에서 정렬 로직과 동일해야 함 (전출생 맨 뒤)
+            c_students = sorted(self.classes[class_num], key=lambda s: (1 if s.전출 else 0, s.이름))
             for idx, s in enumerate(c_students, 1):
                 student_new_numbers[s.이름] = idx
         

@@ -679,8 +679,8 @@ class ClassPanel(QWidget):
         self.student_list.clear() # TreeWidget Clear
         if self.current_class_id in self.assigner.classes:
             students = self.assigner.classes[self.current_class_id]
-            # Assinged Number를 위해 이름순 정렬
-            sorted_students = sorted(students, key=lambda s: s.이름)
+            # Assinged Number를 위해 이름순 정렬 (전출생 맨 뒤로)
+            sorted_students = sorted(students, key=lambda s: (1 if s.전출 else 0, s.이름))
             
             for idx, student in enumerate(sorted_students, 1):
                 item = QTreeWidgetItem(self.student_list)
