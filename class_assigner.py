@@ -1058,7 +1058,8 @@ class ClassAssigner:
             students = self.classes[class_num]
 
             # 정렬: 전출생(1)은 맨 뒤로, 그 외(0)는 이름순
-            students.sort(key=lambda s: (1 if s.전출 else 0, s.이름))
+            # students.sort(key=lambda s: (1 if s.전출 else 0, s.이름)) 
+            # REMOVED: Saving should verify maintain current list order from GUI/Assigner
 
             # 데이터프레임 생성
             data = []
@@ -1308,8 +1309,9 @@ class ClassAssigner:
         
         student_new_numbers = {}
         for class_num in range(1, self.target_class_count + 1):
-            # 위에서 정렬 로직과 동일해야 함 (전출생 맨 뒤)
-            c_students = sorted(self.classes[class_num], key=lambda s: (1 if s.전출 else 0, s.이름))
+            # 정렬하지 않고 현재 리스트 순서 그대로 사용 (GUI 수동 조정 반영)
+            # c_students = sorted(self.classes[class_num], key=lambda s: (1 if s.전출 else 0, s.이름))
+            c_students = self.classes[class_num]
             for idx, s in enumerate(c_students, 1):
                 student_new_numbers[s.이름] = idx
         
@@ -1325,32 +1327,55 @@ class ClassAssigner:
         print("=" * 70)
         print(summary_df.to_string(index=False))
 
+    def sort_classes_by_name(self):
+        """
+        Sorts students in each class:
+        1. Transferred students (전출=True) to the end
+        2. Alphabetical by name
+        """
+        for class_id, students in self.classes.items():
+            self.classes[class_id].sort(key=lambda s: (1 if s.전출 else 0, s.이름))
+
     def run(self, output_file: str = "03 6학년 배정 결과.xlsx"):
-        """전체 프로세스 실행"""
+        """전체 학급 편성 프로세스 실행"""
         try:
-            # 데이터 로드
-            self.load_students()
-            self.load_rules()
-
-            # 6단계 배정 프로세스
-            self.phase1_apply_rules()
-            self.phase2_distribute_special_needs()
-            self.phase3_separate_same_names()
-            self.phase4_balance_difficulty()
-            self.phase5_balance_remaining()
-            # self.phase6_random_distribution()  # Phase 5에서 모두 처리하므로 비활성화
-
-            # 결과 생성
-            self.generate_output(output_file)
-
-            print("\n" + "=" * 70)
-            print("🎉 학급 편성 완료!")
+            print("=" * 70)
+            print("🎓 자동 학급 편성 프로그램 시작")
             print("=" * 70)
 
-        except Exception as e:
-            print(f"\n❌ 오류 발생: {e}")
-            raise
+            # Step 1: 규칙 로드 (이미 __init__에서 로드됨, 명시적 확인)
+            print(f"\n📋 Step 1: 분반/합반 규칙 로드 중...")
+            self.load_rules()
 
+            # Step 2: 배정 실행
+            print(f"\n🚀 Step 2: 학급 배정 알고리즘 실행...")
+            self.assign_classes() # students -> classes
+
+            # 검증
+            self.validate_result()
+            
+            # Step 3: 초기 정렬 (자동 배정 직후에만 수행)
+            self.sort_classes_by_name()
+
+            # Step 4: 결과 저장
+            print(f"\n💾 Step 3: 결과 파일 저장: {output_file}")
+            # generate_output will now respect the internal list order
+            self.save_results(output_file)
+
+            # Step 5: 통계 출력
+            self.print_statistics()
+            
+            print("\n" + "=" * 70)
+            print("✨ 학급 편성이 완료되었습니다!")
+            print("=" * 70)
+
+            return True, "학급 편성이 완료되었습니다!"
+
+        except Exception as e:
+            logger.error(f"Error during assignment: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False, str(e)
 
 def get_base_path():
     """실행 파일의 경로를 반환 (PyInstaller 지원)"""

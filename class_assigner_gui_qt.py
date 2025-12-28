@@ -435,7 +435,8 @@ class ModernTableDelegate(QStyledItemDelegate):
 
 class StudentTreeWidget(QTreeWidget):
     """Drag & Drop을 지원하는 현대적인 테이블 리스트 위젯"""
-    item_dropped = pyqtSignal(object, object)  # source_widget, target_widget
+    item_dropped = pyqtSignal(object, object, int)  # source, target, index
+    order_changed = pyqtSignal(int, list) # class_id, new_student_list
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -446,7 +447,7 @@ class StudentTreeWidget(QTreeWidget):
         self.setHeaderHidden(False) 
         self.setIndentation(0)     
         self.setRootIsDecorated(False)
-        self.setSortingEnabled(True) # Enable Sorting
+        self.setSortingEnabled(False) # Disable Auto-Sorting for Manual Ordering
         
         # Modern Table Delegate 적용
         self.setItemDelegate(ModernTableDelegate(self))
@@ -487,13 +488,77 @@ class StudentTreeWidget(QTreeWidget):
         self.class_id = None
 
     def dropEvent(self, event):
+        """Handle internal reordering and external drops"""
         source = event.source()
+        
+        # 1. Internal Reorder
         if source == self:
-            event.ignore()
+            # Use default implementation to move visual items
+            super().dropEvent(event)
+            self.sync_order()
             return
 
-        self.item_dropped.emit(source, self)
-        event.ignore()
+        # 2. External Drop (from another class)
+        drop_pos = event.position().toPoint()
+        target_item = self.itemAt(drop_pos)
+        drop_index = -1
+        
+        logger.debug(f"Drop Event at {drop_pos}, Target Item: {target_item is not None}")
+        
+        if target_item:
+            drop_index = self.indexOfTopLevelItem(target_item)
+            indicator = self.dropIndicatorPosition()
+            
+            logger.debug(f"  - Initial Index: {drop_index}")
+            logger.debug(f"  - Indicator: {indicator}")
+
+            if indicator == QAbstractItemView.DropIndicatorPosition.BelowItem:
+                drop_index += 1
+                logger.debug("  - Adjusted Index (+1) due to BelowItem")
+            elif indicator == QAbstractItemView.DropIndicatorPosition.OnItem:
+                logger.debug("  - OnItem: Treating as insert before")
+            elif indicator == QAbstractItemView.DropIndicatorPosition.AboveItem:
+                logger.debug("  - AboveItem: Keeping index")
+                
+        else:
+             # Dropped on empty space
+             logger.debug("  - Dropped on empty space")
+             if self.topLevelItemCount() > 0:
+                 last_item = self.topLevelItem(self.topLevelItemCount() - 1)
+                 last_rect = self.visualItemRect(last_item)
+                 logger.debug(f"  - Last Item Rect: {last_rect}, Drop Y: {drop_pos.y()}")
+                 
+                 if drop_pos.y() > last_rect.y() + last_rect.height():
+                     drop_index = self.topLevelItemCount()
+                     logger.debug("  - Appending to end (below last item)")
+                 else:
+                     drop_index = self.topLevelItemCount()
+                     logger.debug("  - Defaulting to end")
+             else:
+                 drop_index = 0
+                 logger.debug("  - Empty list, inserting at 0")
+        
+        logger.debug(f"Final Drop Index emitted: {drop_index}")
+        self.item_dropped.emit(source, self, drop_index) 
+        event.ignore() 
+        
+    def sync_order(self):
+        """Syncs the internal Student list order with the current TreeWidget order"""
+        if self.class_id is None: return
+        
+        new_order = []
+        for i in range(self.topLevelItemCount()):
+            item = self.topLevelItem(i)
+            
+            # Update the displayed Number (Column 0) to match new index (i + 1)
+            # This ensures the "No." column reflects the new visual order immediately
+            item.setData(0, Qt.ItemDataRole.DisplayRole, i + 1)
+            
+            student = item.data(0, Qt.ItemDataRole.UserRole)
+            if student:
+                new_order.append(student)
+        
+        self.order_changed.emit(self.class_id, new_order)
 
 
 class ClassPanel(QWidget):
@@ -502,7 +567,8 @@ class ClassPanel(QWidget):
     Enhanced Modern Dark Mode: Shadow + ComboBox
     """
     class_selected = pyqtSignal(int)
-    student_dropped = pyqtSignal(object, object) # source_widget, target_widget
+    student_dropped = pyqtSignal(object, object, int) # source, target, index
+    order_changed = pyqtSignal(int, list)
 
     def __init__(self, title, assigner, parent=None):
         super().__init__(parent)
@@ -619,7 +685,8 @@ class ClassPanel(QWidget):
 
         # 3. Student List
         self.student_list = StudentTreeWidget()
-        self.student_list.item_dropped.connect(self.on_drop_event)
+        self.student_list.item_dropped.connect(self.student_dropped.emit) # Pass through to parent
+        self.student_list.order_changed.connect(self.order_changed.emit) # Pass through to parent
         
         # Custom Scrollbar Style for the List
         scroll_style = """
@@ -679,10 +746,10 @@ class ClassPanel(QWidget):
         self.student_list.clear() # TreeWidget Clear
         if self.current_class_id in self.assigner.classes:
             students = self.assigner.classes[self.current_class_id]
-            # Assinged Number를 위해 이름순 정렬 (전출생 맨 뒤로)
-            sorted_students = sorted(students, key=lambda s: (1 if s.전출 else 0, s.이름))
+            # Use the list AS IS (Trusting manual order or initial sort)
+            # sorted_students = sorted(students, key=lambda s: (1 if s.전출 else 0, s.이름)) 
             
-            for idx, student in enumerate(sorted_students, 1):
+            for idx, student in enumerate(students, 1):
                 item = QTreeWidgetItem(self.student_list)
                 
                 # Column 0: Number (Sortable)
@@ -760,8 +827,8 @@ class ClassPanel(QWidget):
         # 2. 통계 Refresh (Current View)
         self.update_statistics()
 
-        # 3. Default Sort: Column 0 (Number) Ascending
-        self.student_list.sortItems(0, Qt.SortOrder.AscendingOrder)
+        # 3. Default Sort: REMOVED to support manual reordering
+        # self.student_list.sortItems(0, Qt.SortOrder.AscendingOrder)
 
     def _find_student_class_id(self, name):
         """이름으로 학생의 현재 반 번호 찾기 (Unicode Normalization 적용)"""
@@ -1355,6 +1422,7 @@ class InteractiveEditorGUI(QMainWindow):
         self.left_panel = ClassPanel("왼쪽 패널", self.assigner)
         self.left_panel.class_selected.connect(self.update_buttons_state)
         self.left_panel.student_dropped.connect(self.on_student_dropped)
+        self.left_panel.order_changed.connect(self.on_order_changed)
         main_layout.addWidget(self.left_panel, stretch=4)
 
         # 2. 중앙 버튼 (이동)
@@ -1380,6 +1448,7 @@ class InteractiveEditorGUI(QMainWindow):
         self.right_panel = ClassPanel("오른쪽 패널", self.assigner)
         self.right_panel.class_selected.connect(self.update_buttons_state)
         self.right_panel.student_dropped.connect(self.on_student_dropped)
+        self.right_panel.order_changed.connect(self.on_order_changed)
         main_layout.addWidget(self.right_panel, stretch=4)
         
         # 4. 맨 오른쪽: 범례 및 저장
@@ -1495,12 +1564,12 @@ class InteractiveEditorGUI(QMainWindow):
         if error_messages:
              QMessageBox.warning(self, "이동 실패", "\n".join(error_messages))
 
-    def on_student_dropped(self, source_widget, target_widget):
-        """Drag & Drop 핸들러"""
+    def on_student_dropped(self, source_widget, target_widget, drop_index=-1):
+        """Drag & Drop 핸들러 (Index 지원)"""
         source_class = getattr(source_widget, 'class_id', None)
         target_class = getattr(target_widget, 'class_id', None)
         
-        logger.info(f"Student dropped. Source class: {source_class}, Target class: {target_class}")
+        logger.info(f"Student dropped. Source class: {source_class}, Target class: {target_class}, Index: {drop_index}")
 
         if source_class is None or target_class is None or source_class == target_class:
             logger.warning("Invalid drag & drop operation: source/target class unselected or same class.")
@@ -1510,13 +1579,23 @@ class InteractiveEditorGUI(QMainWindow):
         success_count = 0
         error_messages = []
         
+        # Calculate insert position
+        current_insert_index = drop_index
+        if current_insert_index == -1:
+            current_insert_index = len(self.assigner.classes[target_class])
+        
         for item in selected_items:
             student = item.data(0, Qt.ItemDataRole.UserRole)
             logger.debug(f"Attempting to move student {student.이름} via drag & drop from {source_class} to {target_class}")
-            success, msg = self._execute_move(student, source_class, target_class, silent=True)
+            
+            # Pass insert_index
+            success, msg = self._execute_move(student, source_class, target_class, insert_index=current_insert_index, silent=True)
+            
             if success:
                  success_count += 1
                  logger.info(f"Successfully moved {student.이름} to class {target_class} via drag & drop")
+                 if current_insert_index != -1:
+                     current_insert_index += 1
             else:
                  error_messages.append(f"{student.이름}: {msg}")
                  logger.warning(f"Failed to move {student.이름} via drag & drop: {msg}")
@@ -1528,8 +1607,8 @@ class InteractiveEditorGUI(QMainWindow):
         if error_messages:
             QMessageBox.warning(self, "이동 실패", "\n".join(error_messages))
 
-    def _execute_move(self, student, source_class, target_class, silent=False):
-        """이동 실행 및 검증 (Centralized) -> Returns (success, message)"""
+    def _execute_move(self, student, source_class, target_class, insert_index=-1, silent=False):
+        """이동 실행 및 검증 (Index 지원) -> Returns (success, message)"""
         logger.debug(f"Executing move for {student.이름} from {source_class} to {target_class}")
         # 1. Validation
         if not self.assigner._can_assign(student, target_class):
@@ -1572,11 +1651,26 @@ class InteractiveEditorGUI(QMainWindow):
         if student in self.assigner.classes[source_class]:
             self.assigner.classes[source_class].remove(student)
             student.assigned_class = target_class
-            self.assigner.classes[target_class].append(student)
+            
+            # Insert or Append
+            if insert_index != -1:
+                # Boundary check
+                if insert_index > len(self.assigner.classes[target_class]):
+                    insert_index = len(self.assigner.classes[target_class])
+                self.assigner.classes[target_class].insert(insert_index, student)
+            else:
+                self.assigner.classes[target_class].append(student)
+
             logger.info(f"Student {student.이름} successfully moved from {source_class} to {target_class}.")
             return True, "성공"
         logger.error(f"Student {student.이름} not found in source class {source_class} during move operation.")
         return False, "학생 데이터 불일치"
+
+    def on_order_changed(self, class_id, new_list):
+        """Sync reordered list from Widget to Assigner"""
+        if class_id in self.assigner.classes:
+            self.assigner.classes[class_id] = new_list
+            logger.info(f"Class {class_id} reordered internal. Count: {len(new_list)}")
         
     def export_to_excel(self):
         """Excel 파일로 내보내기"""
