@@ -362,23 +362,34 @@ class ModernTableDelegate(QStyledItemDelegate):
         # 1. Background (Selection / Hover)
         rect = option.rect
         
-        # Determine Color
+        # Use System Palette for consistency (Fix Windows visibility issues)
         if option.state & QStyle.StateFlag.State_Selected:
-            bg_color = QColor("#1565C0") # Dark Blue
-            text_color = QColor("#FFFFFF")
+            bg_color = option.palette.highlight().color()
+            text_color = option.palette.highlightedText().color()
         elif option.state & QStyle.StateFlag.State_MouseOver:
-            bg_color = QColor("#333333") 
-            text_color = QColor("#FFFFFF")
+            # Slightly darker/lighter than base depending on theme
+            bg_color = option.palette.base().color()
+            # Adjust for hover effect (custom tweak)
+            # If base is light, darken it. If dark, lighten it.
+            if bg_color.lightness() > 128:
+                bg_color = bg_color.darker(110) # darken light bg
+            else:
+                bg_color = bg_color.lighter(120) # lighten dark bg
+                
+            text_color = option.palette.text().color()
         else:
-            # Alternating Row Colors handled by QTreeWidget possibly, but here manual
-            bg_color = QColor("#2D2D2D")
-            text_color = QColor("#E0E0E0")
+            # Standard Background
+            bg_color = option.palette.base().color()
+            text_color = option.palette.text().color()
 
+        # Alternate Row Colors (Optional, manually if needed, or rely on widget)
+        # For a clean look, just use Base.
+        
         # Draw Background
         painter.fillRect(rect, bg_color)
         
-        # Draw Border (Bottom Line)
-        painter.setPen(QColor("#424242"))
+        # Draw Border (Bottom Line) - Use Mid/MidLight color
+        painter.setPen(option.palette.midlight().color())
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
 
         # 2. Content Drawing by Column
@@ -1172,7 +1183,7 @@ class ClassAssignerGUI(QMainWindow):
         layout.addSpacing(10)
 
         # 특수반 학생 가중치 입력
-        weight_label = QLabel("특수반 학생 가중치 (몇 명으로 칠까요?):")
+        weight_label = QLabel("특수반 학생 가중치):")
         weight_label.setFont(QFont("", 12, QFont.Weight.Bold))
         layout.addWidget(weight_label)
         

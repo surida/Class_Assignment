@@ -1349,7 +1349,14 @@ class ClassAssigner:
 
             # Step 2: 배정 실행
             print(f"\n🚀 Step 2: 학급 배정 알고리즘 실행...")
-            self.assign_classes() # students -> classes
+            # self.assign_classes() # REMOVED: broken refactoring
+            # 6단계 배정 프로세스 (Restore original logic)
+            self.phase1_apply_rules()
+            self.phase2_distribute_special_needs()
+            self.phase3_separate_same_names()
+            self.phase4_balance_difficulty()
+            self.phase5_balance_remaining()
+            # self.phase6_random_distribution()  # Phase 5에서 모두 처리하므로 비활성화
 
             # 검증
             self.validate_result()
