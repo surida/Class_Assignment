@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHeaderView, QSplitter, QSpinBox, QTextEdit, QLineEdit,
                              QGroupBox, QInputDialog, QStyleOptionViewItem)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QRect, QPoint
-from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter, QLinearGradient
+from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter, QLinearGradient, QPalette
 
 def create_circle_icon(color_code, size=16):
     """Creates a colored circle icon"""
@@ -1717,12 +1717,35 @@ class InteractiveEditorGUI(QMainWindow):
             )
 
 
+def set_global_style(app: QApplication) -> None:
+    """전역 팔레트를 설정해 배경과 대비되는 텍스트 색을 적용합니다.
+    Fusion 스타일은 유지하고, 배경 밝기에 따라 검정·흰 텍스트를 자동 선택합니다.
+    """
+    # Fusion 스타일은 이미 설정돼 있음 (main에서 호출 가능)
+    # 기본 팔레트 복제
+    palette = app.palette()
+    # 배경 색을 기준으로 밝기 계산
+    bg = palette.color(QPalette.ColorRole.Window)
+    brightness = (0.299 * bg.red() + 0.587 * bg.green() + 0.114 * bg.blue())
+    # 밝으면 어두운 텍스트, 어두우면 밝은 텍스트
+    text_color = QColor(0, 0, 0) if brightness > 128 else QColor(255, 255, 255)
+    # 텍스트 색 지정
+    palette.setColor(QPalette.ColorRole.WindowText, text_color)
+    palette.setColor(QPalette.ColorRole.ButtonText, text_color)
+    palette.setColor(QPalette.ColorRole.Text, text_color)
+    palette.setColor(QPalette.ColorRole.HighlightedText, text_color)
+    # 강조 색 (버튼 등) 지정 – 파란색 강조
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(30, 144, 255))
+    app.setPalette(palette)
+
+
 def main():
     """PyQt6 애플리케이션 실행"""
     logger.info("Application Starting...")
     try:
         app = QApplication(sys.argv)
         app.setStyle('Fusion')
+        set_global_style(app)  # 텍스트 대비 적용
         window = ClassAssignerStartGUI()
         window.show()
         sys.exit(app.exec())
