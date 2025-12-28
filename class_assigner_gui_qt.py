@@ -55,7 +55,7 @@ def create_composite_icon(colors, size=16):
         
     painter.end()
     return QIcon(pixmap)
-from class_assigner import ClassAssigner, get_base_path, setup_logger, log_exception
+from class_assigner import ClassAssigner, get_base_path
 
 
 class ClassAssignerStartGUI(QMainWindow):
@@ -162,7 +162,6 @@ class ClassAssignerStartGUI(QMainWindow):
     def load_result_file(self):
         """결과 파일 선택 → InteractiveEditorGUI 실행"""
         logger.info("Load Result File Button Clicked")
-        _logger, log_file = setup_logger()
         logger.info("=" * 70)
         logger.info("결과 파일 불러오기 시작")
         
@@ -197,14 +196,11 @@ class ClassAssignerStartGUI(QMainWindow):
                 )
                 return
         except Exception as e:
-            logger.error("파일 타입 검증 중 오류 발생")
-            log_exception(logger, "파일 타입 검증", e, {
-                'file_path': file_path
-            })
+            logger.error("파일 타입 검증 중 오류 발생", exc_info=True)
             QMessageBox.critical(
                 self,
                 "오류",
-                f"파일 검증 중 오류가 발생했습니다:\n\n{str(e)}\n\n로그 파일: {log_file}"
+                f"파일 검증 중 오류가 발생했습니다:\n\n{str(e)}"
             )
             return
 
@@ -217,13 +213,10 @@ class ClassAssignerStartGUI(QMainWindow):
             logger.info("InteractiveEditorGUI 생성 및 표시 완료")
         except Exception as e:
             logger.error(f"Failed to load InteractiveEditorGUI: {e}", exc_info=True)
-            log_exception(logger, "InteractiveEditorGUI 생성", e, {
-                'file_path': file_path
-            })
             QMessageBox.critical(
                 self,
                 "오류",
-                f"파일 로드 중 오류가 발생했습니다:\n\n{str(e)}\n\n상세 로그가 저장되었습니다:\n{log_file}"
+                f"파일 로드 중 오류가 발생했습니다:\n\n{str(e)}"
             )
             return
 
@@ -263,7 +256,7 @@ class AssignmentThread(QThread):
                     target_class_count=self.target_class_count,
                     special_student_weight=self.special_student_weight
                 )
-                assigner.run(output_file=self.output_file)
+                success, message = assigner.run(output_file=self.output_file)
 
             # 캡처된 출력을 GUI에 표시
             captured_output = output_buffer.getvalue()
@@ -273,14 +266,25 @@ class AssignmentThread(QThread):
 
             self.log_signal.emit("")
             self.log_signal.emit("=" * 70)
-            self.log_signal.emit(f"✅ 완료! 결과 파일이 생성되었습니다:")
-            self.log_signal.emit(f"📁 {self.output_file}")
-            self.log_signal.emit("=" * 70)
+            
+            if success:
+                self.log_signal.emit(f"✅ 완료! 결과 파일이 생성되었습니다:")
+                self.log_signal.emit(f"📁 {self.output_file}")
+                self.log_signal.emit("=" * 70)
 
-            self.finished_signal.emit(
-                True,
-                f"학급 편성이 완료되었습니다!\n\n결과 파일:\n{self.output_file}"
-            )
+                self.finished_signal.emit(
+                    True,
+                    f"학급 편성이 완료되었습니다!\n\n결과 파일:\n{self.output_file}"
+                )
+            else:
+                self.log_signal.emit(f"❌ 실패! 오류가 발생했습니다:")
+                self.log_signal.emit(f"메시지: {message}")
+                self.log_signal.emit("=" * 70)
+                
+                self.finished_signal.emit(
+                    False,
+                    f"학급 편성 중 오류가 발생했습니다:\n\n{message}"
+                )
 
         except Exception as e:
             self.log_signal.emit("")
@@ -1386,7 +1390,8 @@ class InteractiveEditorGUI(QMainWindow):
     def __init__(self, result_file: str):
         super().__init__()
         
-        logger, log_file = setup_logger()
+        
+        # logger, log_file = setup_logger() # Removed: Use global logger
         logger.info("=" * 70)
         logger.info("InteractiveEditorGUI 초기화 시작")
         logger.info(f"결과 파일: {result_file}")
@@ -1408,13 +1413,11 @@ class InteractiveEditorGUI(QMainWindow):
             logger.info("UI 초기화 시작...")
             self.init_ui()
             logger.info("UI 초기화 완료")
-            logger.info(f"로그 파일 위치: {log_file}")
+            logger.info("UI 초기화 완료")
             
         except Exception as e:
-            logger.error("InteractiveEditorGUI 초기화 실패")
-            log_exception(logger, "InteractiveEditorGUI 초기화", e, {
-                'result_file': result_file
-            })
+            logger.error("InteractiveEditorGUI 초기화 실패", exc_info=True)
+            # log_exception removed (redundant)
             # 예외를 다시 발생시켜서 상위에서 처리하도록 함
             raise
 

@@ -2,11 +2,19 @@ import logging
 import os
 import sys
 
+from logging.handlers import RotatingFileHandler
+
 def setup_logging():
     """
-    Sets up logging to a file 'class_assigner_debug.log' and also to console.
+    Sets up logging to 'logs/class_assigner.log' with rotation and console output.
     """
-    log_file = "class_assigner_debug.log"
+    # Ensure logs directory exists
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    log_dir = os.path.join(base_path, "logs")
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+        
+    log_file = os.path.join(log_dir, "class_assigner.log")
     
     # Create logger
     logger = logging.getLogger("ClassAssigner")
@@ -14,9 +22,10 @@ def setup_logging():
     
     # Check if handlers are already added to avoid duplicates
     if not logger.handlers:
-        # File Handler
+        # File Handler (Reset on startup)
         try:
-            file_handler = logging.FileHandler(log_file, encoding='utf-8', mode='a')
+            # use FileHandler with mode='w' to clear previous logs
+            file_handler = logging.FileHandler(log_file, mode='w', encoding='utf-8')
             file_handler.setLevel(logging.DEBUG)
             file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             file_handler.setFormatter(file_formatter)

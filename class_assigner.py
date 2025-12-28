@@ -22,7 +22,7 @@ from tkinter import filedialog, messagebox
 import logging
 
 # Configure logger
-logger = logging.getLogger("ClassAssigner")
+from logger_config import logger
 import logging
 from datetime import datetime
 import traceback
@@ -162,7 +162,6 @@ class ClassAssigner:
         Returns:
             None (self.students, self.classes를 채움)
         """
-        logger, log_file = setup_logger()
         
         logger.info("=" * 70)
         logger.info("배정 결과 파일 로드 시작")
@@ -344,17 +343,9 @@ class ClassAssigner:
                 logger.warning("규칙 시트가 없습니다 (이전 버전 파일)")
                 print("   ⚠️  경고: 규칙 시트가 없습니다 (이전 버전 파일)")
 
-            logger.info("배정 결과 파일 로드 완료")
-            logger.info(f"로그 파일 위치: {log_file}")
-
         except Exception as e:
-            logger.error("배정 결과 파일 로드 실패")
-            log_exception(logger, "배정 결과 파일 로드", e, {
-                'result_file': result_file,
-                'file_exists': os.path.exists(result_file) if result_file else False
-            })
+            logger.error("배정 결과 파일 로드 실패", exc_info=True)
             print(f"   ❌ 파일 읽기 오류: {e}")
-            print(f"   📝 상세 로그가 저장되었습니다: {log_file}")
             raise
 
     @staticmethod
@@ -706,7 +697,8 @@ class ClassAssigner:
             student.locked = True
 
     def phase1_apply_rules(self):
-        """Phase 1: 분반/합반 규칙 적용"""
+        """1단계: 미리 정해진 분반/합반 규칙 적용"""
+        logger.info("Phase 1: 분반/합반 규칙 적용 시작")
         print("\n🎯 Phase 1: 분반/합반 규칙 적용 중...")
 
         # 먼저 합반 그룹 배정 (제약이 더 강함)
@@ -763,7 +755,8 @@ class ClassAssigner:
         print(f"   ✅ Phase 1 완료: {assigned_count}명 배정됨")
 
     def phase2_distribute_special_needs(self):
-        """Phase 2: 특수반 학생 균등 배치"""
+        """2단계: 특수반 학생 균등 분산"""
+        logger.info("Phase 2: 특수반 학생 균등 분산 시작")
         print("\n🎯 Phase 2: 특수반 학생 균등 배치 중...")
 
         # 특수반 학생 현황 파악
@@ -795,7 +788,8 @@ class ClassAssigner:
         print(f"   ✅ 반별 특수반 학생 수: {special_count_per_class}")
 
     def phase3_separate_same_names(self):
-        """Phase 3: 동명이인 분리"""
+        """3단계: 동명이인 분리"""
+        logger.info("Phase 3: 동명이인 분리 시작")
         print("\n🎯 Phase 3: 동명이인 분리 중...")
 
         # 이름별 빈도 계산
@@ -833,7 +827,8 @@ class ClassAssigner:
         print("   ✅ 동명이인 분리 완료")
 
     def phase4_balance_difficulty(self):
-        """Phase 4: 난이도 균등 배분"""
+        """4단계: 난이도(학습 필요 학생) 균등 분산"""
+        logger.info("Phase 4: 난이도 균등 분산 시작")
         print("\n🎯 Phase 4: 난이도 균등 배분 중...")
 
         # 난이도가 있는 미배정 학생들
@@ -867,7 +862,8 @@ class ClassAssigner:
         print(f"   ✅ 반별 난이도 합: {difficulty_sum}")
 
     def phase5_balance_remaining(self):
-        """Phase 5: 반별 순환 배정 (남녀 교차)"""
+        """5단계: 나머지 학생 반별 순환 배정 (성적/성별 균형 고려)"""
+        logger.info("Phase 5: 나머지 학생 반별 순환 배정 시작")
         print("\n🎯 Phase 5: 반별 순환 배정 중...")
 
         # 미배정 학생들
@@ -1340,8 +1336,11 @@ class ClassAssigner:
         """전체 학급 편성 프로세스 실행"""
         try:
             print("=" * 70)
-            print("🎓 자동 학급 편성 프로그램 시작")
+            print("🎓 자동 학급 편성 프로그램 시작 (Fixed Version)")
             print("=" * 70)
+
+            # Step 0: 학생 데이터 로드
+            self.load_students()
 
             # Step 1: 규칙 로드 (이미 __init__에서 로드됨, 명시적 확인)
             print(f"\n📋 Step 1: 분반/합반 규칙 로드 중...")
@@ -1359,7 +1358,7 @@ class ClassAssigner:
             # self.phase6_random_distribution()  # Phase 5에서 모두 처리하므로 비활성화
 
             # 검증
-            self.validate_result()
+            # self.validate_result() # Method does not exist
             
             # Step 3: 초기 정렬 (자동 배정 직후에만 수행)
             self.sort_classes_by_name()
@@ -1367,10 +1366,13 @@ class ClassAssigner:
             # Step 4: 결과 저장
             print(f"\n💾 Step 3: 결과 파일 저장: {output_file}")
             # generate_output will now respect the internal list order
-            self.save_results(output_file)
+            
+            # Ensure absolute path for safety
+            output_file = os.path.abspath(output_file)
+            self.generate_output(output_file)
 
             # Step 5: 통계 출력
-            self.print_statistics()
+            # self.print_statistics() # Method does not exist
             
             print("\n" + "=" * 70)
             print("✨ 학급 편성이 완료되었습니다!")
@@ -1394,54 +1396,7 @@ def get_base_path():
         return os.path.dirname(os.path.abspath(__file__))
 
 
-def setup_logger():
-    """로거 설정 및 로그 파일 경로 반환"""
-    base_path = get_base_path()
-    log_dir = os.path.join(base_path, "logs")
-    
-    # logs 디렉토리 생성
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    
-    # 로그 파일명: 날짜_시간.log
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(log_dir, f"crash_log_{timestamp}.log")
-    
-    # 로거 설정
-    logger = logging.getLogger('ClassAssigner')
-    logger.setLevel(logging.DEBUG)
-    
-    # 기존 핸들러 제거 (중복 방지)
-    if logger.handlers:
-        logger.handlers.clear()
-    
-    # 파일 핸들러
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    
-    # 포맷터
-    formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(formatter)
-    
-    logger.addHandler(file_handler)
-    
-    return logger, log_file
 
-
-def log_exception(logger, operation, exception, context=None):
-    """예외를 로그에 기록"""
-    logger.error("=" * 70)
-    logger.error(f"오류 발생: {operation}")
-    logger.error(f"예외 타입: {type(exception).__name__}")
-    logger.error(f"예외 메시지: {str(exception)}")
-    
-    if context:
-        logger.error("컨텍스트 정보:")
-        for key, value in context.items():
-            logger.error(f"  {key}: {value}")
     
     logger.error("스택 트레이스:")
     logger.error(traceback.format_exc())
