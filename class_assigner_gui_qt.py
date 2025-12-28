@@ -365,26 +365,18 @@ class ModernTableDelegate(QStyledItemDelegate):
 
         # 1. Background (Selection / Hover)
         rect = option.rect
-        
-        # Use System Palette for consistency (Fix Windows visibility issues)
+
+        # 다크모드 고정 색상 사용 (Windows 호환성 - 시스템 팔레트 무시)
         if option.state & QStyle.StateFlag.State_Selected:
-            bg_color = option.palette.highlight().color()
-            text_color = option.palette.highlightedText().color()
+            bg_color = QColor("#1976D2")  # 파란색 선택 배경
+            text_color = QColor("#FFFFFF")  # 흰색 텍스트
         elif option.state & QStyle.StateFlag.State_MouseOver:
-            # Slightly darker/lighter than base depending on theme
-            bg_color = option.palette.base().color()
-            # Adjust for hover effect (custom tweak)
-            # If base is light, darken it. If dark, lighten it.
-            if bg_color.lightness() > 128:
-                bg_color = bg_color.darker(110) # darken light bg
-            else:
-                bg_color = bg_color.lighter(120) # lighten dark bg
-                
-            text_color = option.palette.text().color()
+            bg_color = QColor("#424242")  # 호버 배경
+            text_color = QColor("#E0E0E0")  # 밝은 회색 텍스트
         else:
-            # Standard Background
-            bg_color = option.palette.base().color()
-            text_color = option.palette.text().color()
+            # 기본 다크 배경
+            bg_color = QColor("#2D2D2D")
+            text_color = QColor("#E0E0E0")  # 밝은 회색 텍스트
 
         # Alternate Row Colors (Optional, manually if needed, or rely on widget)
         # For a clean look, just use Base.
@@ -475,12 +467,23 @@ class StudentTreeWidget(QTreeWidget):
         
         self.setMouseTracking(True)
         
-        # Style
+        # Style - 명시적 텍스트 색상 지정 (Windows 호환성)
         self.setStyleSheet("""
             QTreeWidget {
                 background-color: #2D2D2D;
+                color: #E0E0E0;
                 border: none;
                 gridline-color: #424242;
+            }
+            QTreeWidget::item {
+                color: #E0E0E0;
+            }
+            QTreeWidget::item:selected {
+                background-color: #1976D2;
+                color: #FFFFFF;
+            }
+            QTreeWidget::item:hover {
+                background-color: #424242;
             }
             QHeaderView::section {
                 background-color: #1E1E1E;
