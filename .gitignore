@@ -38,3 +38,9 @@ htmlcov/
 test_output.xlsx
 test_output_v2.xlsx
 test_output_6classes.xlsx
+
+# Ignored Folders
+capture/
+logs/
+*.log
+class_assigner_debug.log
