@@ -44,3 +44,4 @@ capture/
 logs/
 *.log
 class_assigner_debug.log
+crash-issue/
