@@ -1421,13 +1421,14 @@ class CompactStudentCard(QFrame):
 class ClassColumn(QFrame):
     """칸반 스타일 반 컬럼 - 드롭 수신 지원"""
     class_clicked = pyqtSignal(int)  # class_id
-    student_moved = pyqtSignal(int, int, object)  # from_class, to_class, student
+    student_moved = pyqtSignal(int, int, object, int)  # from_class, to_class, student, insert_index
 
     def __init__(self, class_id, assigner, parent=None):
         super().__init__(parent)
         self.class_id = class_id
         self.assigner = assigner
         self.is_selected = False
+        self.drop_indicator_index = -1  # 드롭 위치 표시용
         self.setAcceptDrops(True)  # 드롭 수신 활성화
         self.init_ui()
 
@@ -1540,7 +1541,6 @@ class ClassColumn(QFrame):
             from_class = int(data.split(":")[0])
             if from_class != self.class_id:
                 event.acceptProposedAction()
-                # 드롭 가능 표시 (배경색 변경)
                 self.setStyleSheet("""
                     ClassColumn {
                         border: 2px dashed palette(highlight);
@@ -1553,12 +1553,88 @@ class ClassColumn(QFrame):
         else:
             event.ignore()
 
+    def dragMoveEvent(self, event):
+        """드래그 이동 이벤트 - 삽입 위치 계산 및 표시"""
+        if not event.mimeData().hasFormat("application/x-student"):
+            event.ignore()
+            return
+
+        data = event.mimeData().data("application/x-student").data().decode()
+        from_class = int(data.split(":")[0])
+        if from_class == self.class_id:
+            event.ignore()
+            return
+
+        event.acceptProposedAction()
+
+        # 드롭 위치 계산 (student_container 내 좌표로 변환)
+        pos = self.student_container.mapFrom(self, event.position().toPoint())
+        new_index = self._calc_drop_index(pos)
+
+        # 인디케이터 업데이트
+        if new_index != self.drop_indicator_index:
+            self.drop_indicator_index = new_index
+            self._update_drop_indicator()
+
+    def _calc_drop_index(self, pos):
+        """드롭 위치에 해당하는 인덱스 계산"""
+        y = pos.y()
+        # student_layout에서 학생 카드 위젯들만 순회 (마지막 stretch 제외)
+        card_count = self.student_layout.count() - 1  # stretch 제외
+
+        for i in range(card_count):
+            item = self.student_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                widget_y = widget.y()
+                widget_height = widget.height()
+                # 카드의 중간점을 기준으로 위/아래 판단
+                if y < widget_y + widget_height / 2:
+                    return i
+        return card_count  # 마지막 위치
+
+    def _update_drop_indicator(self):
+        """드롭 위치 인디케이터 업데이트"""
+        card_count = self.student_layout.count() - 1  # stretch 제외
+
+        for i in range(card_count):
+            item = self.student_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                if i == self.drop_indicator_index:
+                    # 삽입 위치 위의 카드에 상단 보더 표시
+                    widget.setStyleSheet(widget.styleSheet() +
+                        "border-top: 3px solid palette(highlight);")
+                else:
+                    # 기존 스타일 복원 (border-top 제거)
+                    style = widget.styleSheet()
+                    if "border-top: 3px solid" in style:
+                        widget.setStyleSheet(style.replace(
+                            "border-top: 3px solid palette(highlight);", ""))
+
+    def _clear_drop_indicator(self):
+        """드롭 인디케이터 제거"""
+        card_count = self.student_layout.count() - 1
+        for i in range(card_count):
+            item = self.student_layout.itemAt(i)
+            if item and item.widget():
+                widget = item.widget()
+                style = widget.styleSheet()
+                if "border-top: 3px solid" in style:
+                    widget.setStyleSheet(style.replace(
+                        "border-top: 3px solid palette(highlight);", ""))
+        self.drop_indicator_index = -1
+
     def dragLeaveEvent(self, event):
         """드래그 이탈 이벤트"""
+        self._clear_drop_indicator()
         self.update_style()  # 원래 스타일로 복원
 
     def dropEvent(self, event):
         """드롭 이벤트"""
+        insert_index = self.drop_indicator_index if self.drop_indicator_index >= 0 else -1
+        self._clear_drop_indicator()
+
         if event.mimeData().hasFormat("application/x-student"):
             data = event.mimeData().data("application/x-student").data().decode()
             from_class, student_id = data.split(":")
@@ -1573,8 +1649,8 @@ class ClassColumn(QFrame):
                     break
 
             if student and from_class != self.class_id:
-                # 시그널 발송 (OverviewGUI에서 처리)
-                self.student_moved.emit(from_class, self.class_id, student)
+                # 시그널 발송 (OverviewGUI에서 처리) - 삽입 위치 포함
+                self.student_moved.emit(from_class, self.class_id, student, insert_index)
                 event.acceptProposedAction()
             else:
                 event.ignore()
@@ -1738,19 +1814,25 @@ class OverviewGUI(QMainWindow):
             self.selection_label.setText(f"선택: {self.selected_classes[0]}반 ↔ {self.selected_classes[1]}반")
             self.edit_btn.setEnabled(True)
 
-    def on_student_moved(self, from_class: int, to_class: int, student):
+    def on_student_moved(self, from_class: int, to_class: int, student, insert_index: int = -1):
         """학생 이동 처리 (드래그 앤 드롭)"""
-        logger.info(f"학생 이동: {student.이름} ({from_class}반 → {to_class}반)")
+        logger.info(f"학생 이동: {student.이름} ({from_class}반 → {to_class}반, 위치: {insert_index})")
 
         # 1. 원래 반에서 학생 제거
         if from_class in self.assigner.classes:
             if student in self.assigner.classes[from_class]:
                 self.assigner.classes[from_class].remove(student)
 
-        # 2. 목표 반에 학생 추가
+        # 2. 목표 반에 학생 추가 (특정 위치에 삽입)
         if to_class not in self.assigner.classes:
             self.assigner.classes[to_class] = []
-        self.assigner.classes[to_class].append(student)
+
+        if insert_index >= 0 and insert_index < len(self.assigner.classes[to_class]):
+            # 특정 위치에 삽입
+            self.assigner.classes[to_class].insert(insert_index, student)
+        else:
+            # 맨 뒤에 추가
+            self.assigner.classes[to_class].append(student)
 
         # 3. 두 반의 UI 새로고침
         if from_class in self.class_columns:
