@@ -20,8 +20,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QStyle, QTreeWidget, QTreeWidgetItem, QAbstractItemView,
                              QHeaderView, QSplitter, QSpinBox, QTextEdit, QLineEdit,
                              QGroupBox, QInputDialog, QStyleOptionViewItem, QScrollArea)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QRect, QPoint
-from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter, QLinearGradient, QPalette
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QRect, QPoint, QMimeData
+from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter, QLinearGradient, QPalette, QDrag
 
 def create_circle_icon(color_code, size=16):
     """Creates a colored circle icon"""
@@ -1318,15 +1318,17 @@ class ClassAssignerGUI(QMainWindow):
 
 
 class CompactStudentCard(QFrame):
-    """축소 학생 카드 (칸반 보드용)"""
+    """축소 학생 카드 (칸반 보드용) - 드래그 지원"""
     clicked = pyqtSignal(object)  # student object
 
-    def __init__(self, student, assigner, parent=None):
+    def __init__(self, student, assigner, class_id, parent=None):
         super().__init__(parent)
         self.student = student
         self.assigner = assigner
+        self.class_id = class_id  # 현재 소속 반
         self.setFixedHeight(28)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.drag_start_pos = None
         self.init_ui()
 
     def init_ui(self):
@@ -1382,19 +1384,51 @@ class CompactStudentCard(QFrame):
         return "#FFFFFF"  # 흰색 (일반)
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_pos = event.pos()
         self.clicked.emit(self.student)
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if self.drag_start_pos is None:
+            return
+        # 드래그 시작 거리 체크
+        if (event.pos() - self.drag_start_pos).manhattanLength() < 10:
+            return
+
+        # 드래그 시작
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        # 학생 정보를 MIME 데이터로 전달
+        mime_data.setText(f"{self.class_id}:{self.student.이름}")
+        mime_data.setData("application/x-student",
+                         f"{self.class_id}:{id(self.student)}".encode())
+        drag.setMimeData(mime_data)
+
+        # 드래그 시 표시할 픽스맵
+        pixmap = self.grab()
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(event.pos())
+
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        drag.exec(Qt.DropAction.MoveAction)
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.drag_start_pos = None
+
 
 class ClassColumn(QFrame):
-    """칸반 스타일 반 컬럼"""
+    """칸반 스타일 반 컬럼 - 드롭 수신 지원"""
     class_clicked = pyqtSignal(int)  # class_id
+    student_moved = pyqtSignal(int, int, object)  # from_class, to_class, student
 
     def __init__(self, class_id, assigner, parent=None):
         super().__init__(parent)
         self.class_id = class_id
         self.assigner = assigner
         self.is_selected = False
+        self.setAcceptDrops(True)  # 드롭 수신 활성화
         self.init_ui()
 
     def init_ui(self):
@@ -1490,36 +1524,94 @@ class ClassColumn(QFrame):
             if item.widget():
                 item.widget().deleteLater()
 
-        # 학생 카드 추가
+        # 학생 카드 추가 (class_id 전달)
         students = self.assigner.classes.get(self.class_id, [])
         for student in students:
-            card = CompactStudentCard(student, self.assigner)
+            card = CompactStudentCard(student, self.assigner, self.class_id)
             self.student_layout.insertWidget(self.student_layout.count() - 1, card)
 
         self.update_header()
+
+    def dragEnterEvent(self, event):
+        """드래그 진입 이벤트"""
+        if event.mimeData().hasFormat("application/x-student"):
+            # 다른 반에서 온 경우만 수락
+            data = event.mimeData().data("application/x-student").data().decode()
+            from_class = int(data.split(":")[0])
+            if from_class != self.class_id:
+                event.acceptProposedAction()
+                # 드롭 가능 표시 (배경색 변경)
+                self.setStyleSheet("""
+                    ClassColumn {
+                        border: 2px dashed palette(highlight);
+                        border-radius: 8px;
+                        background-color: palette(alternateBase);
+                    }
+                """)
+            else:
+                event.ignore()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        """드래그 이탈 이벤트"""
+        self.update_style()  # 원래 스타일로 복원
+
+    def dropEvent(self, event):
+        """드롭 이벤트"""
+        if event.mimeData().hasFormat("application/x-student"):
+            data = event.mimeData().data("application/x-student").data().decode()
+            from_class, student_id = data.split(":")
+            from_class = int(from_class)
+            student_id = int(student_id)
+
+            # 학생 객체 찾기
+            student = None
+            for s in self.assigner.classes.get(from_class, []):
+                if id(s) == student_id:
+                    student = s
+                    break
+
+            if student and from_class != self.class_id:
+                # 시그널 발송 (OverviewGUI에서 처리)
+                self.student_moved.emit(from_class, self.class_id, student)
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        else:
+            event.ignore()
+
+        self.update_style()  # 스타일 복원
 
 
 class OverviewGUI(QMainWindow):
     """전체 학생 보기 화면 (Bird's Eye View)"""
 
-    def __init__(self, result_file: str):
+    def __init__(self, result_file: str, assigner: ClassAssigner = None):
         super().__init__()
         logger.info("=" * 70)
         logger.info("OverviewGUI 초기화 시작")
         logger.info(f"결과 파일: {result_file}")
+        logger.info(f"Assigner 객체 전달됨: {assigner is not None}")
 
         self.result_file = result_file
         self.selected_classes = []  # 최대 2개
 
         # Assigner 로드
         try:
-            self.assigner = ClassAssigner(
-                student_file="",
-                rules_file="",
-                target_class_count=7
-            )
-            self.assigner.load_from_result(result_file)
-            logger.info("결과 파일 로드 완료")
+            if assigner is not None:
+                # 외부에서 assigner 객체를 전달받은 경우
+                logger.info("전달받은 ClassAssigner 객체 사용")
+                self.assigner = assigner
+            else:
+                # 파일에서 새로 로드하는 경우
+                self.assigner = ClassAssigner(
+                    student_file="",
+                    rules_file="",
+                    target_class_count=7
+                )
+                self.assigner.load_from_result(result_file)
+                logger.info("결과 파일 로드 완료")
 
             self.init_ui()
             logger.info("OverviewGUI UI 초기화 완료")
@@ -1595,6 +1687,7 @@ class OverviewGUI(QMainWindow):
         for class_id in range(1, self.assigner.target_class_count + 1):
             column = ClassColumn(class_id, self.assigner)
             column.class_clicked.connect(self.on_class_clicked)
+            column.student_moved.connect(self.on_student_moved)  # 드래그&드롭 시그널 연결
             self.class_columns[class_id] = column
             kanban_layout.addWidget(column)
 
@@ -1603,9 +1696,9 @@ class OverviewGUI(QMainWindow):
         # 하단: 통계
         stats_layout = QHBoxLayout()
         total_students = sum(len(students) for students in self.assigner.classes.values())
-        stats_label = QLabel(f"총 학생 수: {total_students}명 | {self.assigner.target_class_count}개 반")
-        stats_label.setFont(QFont("", 11))
-        stats_layout.addWidget(stats_label)
+        self.stats_label = QLabel(f"총 학생 수: {total_students}명 | {self.assigner.target_class_count}개 반")
+        self.stats_label.setFont(QFont("", 11))
+        stats_layout.addWidget(self.stats_label)
         stats_layout.addStretch()
 
         version_label = QLabel(f"Version: {VERSION}")
@@ -1645,6 +1738,36 @@ class OverviewGUI(QMainWindow):
             self.selection_label.setText(f"선택: {self.selected_classes[0]}반 ↔ {self.selected_classes[1]}반")
             self.edit_btn.setEnabled(True)
 
+    def on_student_moved(self, from_class: int, to_class: int, student):
+        """학생 이동 처리 (드래그 앤 드롭)"""
+        logger.info(f"학생 이동: {student.이름} ({from_class}반 → {to_class}반)")
+
+        # 1. 원래 반에서 학생 제거
+        if from_class in self.assigner.classes:
+            if student in self.assigner.classes[from_class]:
+                self.assigner.classes[from_class].remove(student)
+
+        # 2. 목표 반에 학생 추가
+        if to_class not in self.assigner.classes:
+            self.assigner.classes[to_class] = []
+        self.assigner.classes[to_class].append(student)
+
+        # 3. 두 반의 UI 새로고침
+        if from_class in self.class_columns:
+            self.class_columns[from_class].refresh_students()
+        if to_class in self.class_columns:
+            self.class_columns[to_class].refresh_students()
+
+        # 4. 하단 통계 업데이트
+        self.update_stats()
+
+        logger.info(f"학생 이동 완료: {from_class}반({len(self.assigner.classes.get(from_class, []))}명) → {to_class}반({len(self.assigner.classes.get(to_class, []))}명)")
+
+    def update_stats(self):
+        """하단 통계 업데이트"""
+        total_students = sum(len(students) for students in self.assigner.classes.values())
+        self.stats_label.setText(f"총 학생 수: {total_students}명 | {self.assigner.target_class_count}개 반")
+
     def open_editor(self):
         """수동 조정 화면 열기"""
         if len(self.selected_classes) != 2:
@@ -1653,7 +1776,8 @@ class OverviewGUI(QMainWindow):
         logger.info(f"Opening editor with classes: {self.selected_classes}")
         self.editor = InteractiveEditorGUI(
             self.result_file,
-            initial_classes=self.selected_classes
+            initial_classes=self.selected_classes,
+            assigner=self.assigner  # assigner 객체 직접 전달
         )
         self.editor.show()
         self.close()
@@ -1682,7 +1806,7 @@ class OverviewGUI(QMainWindow):
 class InteractiveEditorGUI(QMainWindow):
     """수동 조정 화면 (Symmetrical Dual-Panel)"""
 
-    def __init__(self, result_file: str, initial_classes: list = None):
+    def __init__(self, result_file: str, initial_classes: list = None, assigner: ClassAssigner = None):
         super().__init__()
 
         self.result_file = result_file  # 결과 파일 경로 저장
@@ -1692,20 +1816,27 @@ class InteractiveEditorGUI(QMainWindow):
         logger.info("InteractiveEditorGUI 초기화 시작")
         logger.info(f"결과 파일: {result_file}")
         logger.info(f"초기 선택 반: {initial_classes}")
+        logger.info(f"Assigner 객체 전달됨: {assigner is not None}")
 
         # Assigner 로드
         try:
-            logger.info("ClassAssigner 객체 생성 중...")
-            self.assigner = ClassAssigner(
-                student_file="",
-                rules_file="",
-                target_class_count=7
-            )
-            logger.info("ClassAssigner 객체 생성 완료")
+            if assigner is not None:
+                # 외부에서 assigner 객체를 전달받은 경우 (OverviewGUI에서 호출)
+                logger.info("전달받은 ClassAssigner 객체 사용")
+                self.assigner = assigner
+            else:
+                # 파일에서 새로 로드하는 경우
+                logger.info("ClassAssigner 객체 생성 중...")
+                self.assigner = ClassAssigner(
+                    student_file="",
+                    rules_file="",
+                    target_class_count=7
+                )
+                logger.info("ClassAssigner 객체 생성 완료")
 
-            logger.info("결과 파일 로드 시작...")
-            self.assigner.load_from_result(result_file)
-            logger.info("결과 파일 로드 완료")
+                logger.info("결과 파일 로드 시작...")
+                self.assigner.load_from_result(result_file)
+                logger.info("결과 파일 로드 완료")
 
             logger.info("UI 초기화 시작...")
             self.init_ui()
@@ -2050,9 +2181,9 @@ class InteractiveEditorGUI(QMainWindow):
                 QMessageBox.critical(self, "오류", f"저장 중 오류:\n{str(e)}")
                 return
 
-        # OverviewGUI로 이동
+        # OverviewGUI로 이동 (assigner 객체 전달하여 변경사항 유지)
         try:
-            self.overview_gui = OverviewGUI(self.result_file)
+            self.overview_gui = OverviewGUI(self.result_file, assigner=self.assigner)
             self.overview_gui.show()
             self.close()
             logger.info("Returned to OverviewGUI successfully.")
