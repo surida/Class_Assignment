@@ -4,7 +4,7 @@ PyQt6 기반 크로스플랫폼 사용자 인터페이스
 """
 
 # Version Information
-VERSION = "v2.7"  # Update this for each release
+VERSION = "v2.8"  # Update this for each release
 
 import sys
 import os
