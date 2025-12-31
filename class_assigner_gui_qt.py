@@ -13,13 +13,13 @@ from logger_config import logger  # Import logger
 import traceback
 import logging
 import unicodedata
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QLabel, QListWidget, QPushButton, 
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QHBoxLayout, QLabel, QListWidget, QPushButton,
                              QMessageBox, QFileDialog, QListWidgetItem, QFrame,
                              QGraphicsDropShadowEffect, QComboBox, QStyledItemDelegate,
                              QStyle, QTreeWidget, QTreeWidgetItem, QAbstractItemView,
                              QHeaderView, QSplitter, QSpinBox, QTextEdit, QLineEdit,
-                             QGroupBox, QInputDialog, QStyleOptionViewItem)
+                             QGroupBox, QInputDialog, QStyleOptionViewItem, QScrollArea)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QRect, QPoint
 from PyQt6.QtGui import QFont, QIcon, QColor, QPixmap, QPainter, QLinearGradient, QPalette
 
@@ -204,15 +204,15 @@ class ClassAssignerStartGUI(QMainWindow):
             )
             return
 
-        # InteractiveEditorGUI 실행
+        # OverviewGUI 실행 (전체 학생 보기 → 반 선택 → 수동 조정)
         try:
-            logger.info("Initializing InteractiveEditorGUI...")
-            self.editor_gui = InteractiveEditorGUI(file_path)
-            self.editor_gui.show()
+            logger.info("Initializing OverviewGUI...")
+            self.overview_gui = OverviewGUI(file_path)
+            self.overview_gui.show()
             self.close()
-            logger.info("InteractiveEditorGUI 생성 및 표시 완료")
+            logger.info("OverviewGUI 생성 및 표시 완료")
         except Exception as e:
-            logger.error(f"Failed to load InteractiveEditorGUI: {e}", exc_info=True)
+            logger.error(f"Failed to load OverviewGUI: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
                 "오류",
@@ -1283,51 +1283,415 @@ class ClassAssignerGUI(QMainWindow):
 
         # 결과 메시지 표시
         if success:
-            # 완료 후 수동 조정 화면으로 이동할지 물어보기
+            # 완료 후 전체 보기 화면으로 이동할지 물어보기
             reply = QMessageBox.question(
                 self,
                 "완료",
-                f"{message}\n\n수동 조정 화면으로 이동하시겠습니까?",
+                f"{message}\n\n전체 학생 보기 화면으로 이동하시겠습니까?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
 
             if reply == QMessageBox.StandardButton.Yes:
-                logger.info("User chose to move to InteractiveEditorGUI.")
-                # InteractiveEditorGUI로 전환
+                logger.info("User chose to move to OverviewGUI.")
+                # OverviewGUI로 전환
                 output_file = os.path.join(
                     os.path.dirname(self.student_file_path),
                     '03 배정 결과.xlsx'
                 )
                 try:
-                    self.editor_gui = InteractiveEditorGUI(output_file)
-                    self.editor_gui.show()
+                    self.overview_gui = OverviewGUI(output_file)
+                    self.overview_gui.show()
                     self.close()
-                    logger.info("InteractiveEditorGUI launched successfully.")
+                    logger.info("OverviewGUI launched successfully.")
                 except Exception as e:
-                    logger.error(f"Failed to launch InteractiveEditorGUI after assignment: {e}", exc_info=True)
+                    logger.error(f"Failed to launch OverviewGUI after assignment: {e}", exc_info=True)
                     QMessageBox.critical(
                         self,
                         "오류",
-                        f"수동 조정 화면 로드 중 오류가 발생했습니다:\n\n{str(e)}"
+                        f"전체 보기 화면 로드 중 오류가 발생했습니다:\n\n{str(e)}"
                     )
             else:
-                logger.info("User chose not to move to InteractiveEditorGUI.")
+                logger.info("User chose not to move to OverviewGUI.")
         else:
             logger.error(f"Assignment failed: {message}")
             QMessageBox.critical(self, "오류", message)
 
 
-class InteractiveEditorGUI(QMainWindow):
-    """수동 조정 화면 (Symmetrical Dual-Panel)"""
+class CompactStudentCard(QFrame):
+    """축소 학생 카드 (칸반 보드용)"""
+    clicked = pyqtSignal(object)  # student object
+
+    def __init__(self, student, assigner, parent=None):
+        super().__init__(parent)
+        self.student = student
+        self.assigner = assigner
+        self.setFixedHeight(28)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QHBoxLayout()
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(4)
+
+        # 상태 아이콘 (색상 원)
+        icon_label = QLabel()
+        color = self._get_status_color()
+        icon_label.setPixmap(create_circle_icon(color, 12).pixmap(12, 12))
+        layout.addWidget(icon_label)
+
+        # 이름
+        name_label = QLabel(self.student.이름)
+        name_label.setFont(QFont("", 10))
+        layout.addWidget(name_label)
+
+        # 성별
+        gender_label = QLabel(self.student.성별)
+        gender_label.setFont(QFont("", 9))
+        layout.addWidget(gender_label)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+        # 스타일
+        self.setStyleSheet("""
+            CompactStudentCard {
+                border: 1px solid palette(mid);
+                border-radius: 4px;
+                background-color: palette(base);
+            }
+            CompactStudentCard:hover {
+                border: 1px solid palette(highlight);
+                background-color: palette(alternateBase);
+            }
+        """)
+
+    def _get_status_color(self):
+        """학생 상태에 따른 색상 반환"""
+        if self.student.특수반:
+            return "#9C27B0"  # 보라
+        elif self.student.전출:
+            return "#9E9E9E"  # 회색
+        elif self.student.이름 in self.assigner.separation_rules:
+            return "#FFD700"  # 노랑 (분반)
+        else:
+            # 합반 체크
+            for group in self.assigner.together_groups:
+                if self.student.이름 in group:
+                    return "#2196F3"  # 파랑 (합반)
+        return "#FFFFFF"  # 흰색 (일반)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(self.student)
+        super().mousePressEvent(event)
+
+
+class ClassColumn(QFrame):
+    """칸반 스타일 반 컬럼"""
+    class_clicked = pyqtSignal(int)  # class_id
+
+    def __init__(self, class_id, assigner, parent=None):
+        super().__init__(parent)
+        self.class_id = class_id
+        self.assigner = assigner
+        self.is_selected = False
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
+
+        # 헤더 (클릭 가능)
+        self.header = QPushButton()
+        self.header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.header.clicked.connect(lambda: self.class_clicked.emit(self.class_id))
+        self.update_header()
+        layout.addWidget(self.header)
+
+        # 학생 목록 (스크롤 가능)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+
+        self.student_container = QWidget()
+        self.student_layout = QVBoxLayout()
+        self.student_layout.setContentsMargins(0, 0, 0, 0)
+        self.student_layout.setSpacing(2)
+        self.student_layout.addStretch()
+        self.student_container.setLayout(self.student_layout)
+
+        scroll.setWidget(self.student_container)
+        layout.addWidget(scroll)
+
+        self.setLayout(layout)
+        self.update_style()
+        self.refresh_students()
+
+    def update_header(self):
+        """헤더 텍스트 업데이트"""
+        students = self.assigner.classes.get(self.class_id, [])
+        total = len(students)
+        male = sum(1 for s in students if s.성별 == '남')
+        female = sum(1 for s in students if s.성별 == '여')
+        self.header.setText(f"{self.class_id}반 ({total}명)\n남{male} 여{female}")
+        self.header.setFont(QFont("", 11, QFont.Weight.Bold))
+
+    def update_style(self):
+        """선택 상태에 따른 스타일 업데이트"""
+        if self.is_selected:
+            self.setStyleSheet("""
+                ClassColumn {
+                    border: 2px solid palette(highlight);
+                    border-radius: 8px;
+                    background-color: palette(base);
+                }
+            """)
+            self.header.setStyleSheet("""
+                QPushButton {
+                    background-color: palette(highlight);
+                    color: palette(highlightedText);
+                    border: none;
+                    border-radius: 4px;
+                    padding: 8px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                ClassColumn {
+                    border: 1px solid palette(mid);
+                    border-radius: 8px;
+                    background-color: palette(base);
+                }
+            """)
+            self.header.setStyleSheet("""
+                QPushButton {
+                    background-color: palette(button);
+                    border: 1px solid palette(mid);
+                    border-radius: 4px;
+                    padding: 8px;
+                }
+                QPushButton:hover {
+                    background-color: palette(midlight);
+                }
+            """)
+
+    def set_selected(self, selected):
+        """선택 상태 설정"""
+        self.is_selected = selected
+        self.update_style()
+
+    def refresh_students(self):
+        """학생 카드 새로고침"""
+        # 기존 카드 제거
+        while self.student_layout.count() > 1:  # stretch 제외
+            item = self.student_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 학생 카드 추가
+        students = self.assigner.classes.get(self.class_id, [])
+        for student in students:
+            card = CompactStudentCard(student, self.assigner)
+            self.student_layout.insertWidget(self.student_layout.count() - 1, card)
+
+        self.update_header()
+
+
+class OverviewGUI(QMainWindow):
+    """전체 학생 보기 화면 (Bird's Eye View)"""
 
     def __init__(self, result_file: str):
         super().__init__()
-        
-        
-        # logger, log_file = setup_logger() # Removed: Use global logger
+        logger.info("=" * 70)
+        logger.info("OverviewGUI 초기화 시작")
+        logger.info(f"결과 파일: {result_file}")
+
+        self.result_file = result_file
+        self.selected_classes = []  # 최대 2개
+
+        # Assigner 로드
+        try:
+            self.assigner = ClassAssigner(
+                student_file="",
+                rules_file="",
+                target_class_count=7
+            )
+            self.assigner.load_from_result(result_file)
+            logger.info("결과 파일 로드 완료")
+
+            self.init_ui()
+            logger.info("OverviewGUI UI 초기화 완료")
+
+        except Exception as e:
+            logger.error("OverviewGUI 초기화 실패", exc_info=True)
+            raise
+
+    def init_ui(self):
+        self.setWindowTitle(f"🎓 전체 학생 보기 - {VERSION}")
+        self.setGeometry(50, 50, 1400, 800)
+
+        main_widget = QWidget()
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+        # 상단: 안내 및 선택 상태
+        header_layout = QHBoxLayout()
+
+        title_label = QLabel("📋 전체 학생 보기")
+        title_label.setFont(QFont("", 16, QFont.Weight.Bold))
+        header_layout.addWidget(title_label)
+
+        header_layout.addStretch()
+
+        # 선택 상태 표시
+        self.selection_label = QLabel("반을 2개 선택하세요")
+        self.selection_label.setFont(QFont("", 12))
+        header_layout.addWidget(self.selection_label)
+
+        # 수동 조정 버튼
+        self.edit_btn = QPushButton("🔧 수동 조정 화면으로")
+        self.edit_btn.setEnabled(False)
+        self.edit_btn.setMinimumWidth(180)
+        self.edit_btn.setMinimumHeight(40)
+        self.edit_btn.setFont(QFont("", 12))
+        self.edit_btn.clicked.connect(self.open_editor)
+        header_layout.addWidget(self.edit_btn)
+
+        # 저장 버튼
+        save_btn = QPushButton("💾 저장")
+        save_btn.setMinimumHeight(40)
+        save_btn.clicked.connect(self.export_to_excel)
+        header_layout.addWidget(save_btn)
+
+        main_layout.addLayout(header_layout)
+
+        # 범례
+        legend_layout = QHBoxLayout()
+        legend_layout.addWidget(QLabel("범례:"))
+
+        def add_legend(text, color):
+            icon = QLabel()
+            icon.setPixmap(create_circle_icon(color, 12).pixmap(12, 12))
+            legend_layout.addWidget(icon)
+            legend_layout.addWidget(QLabel(text))
+            legend_layout.addSpacing(10)
+
+        add_legend("특수", "#9C27B0")
+        add_legend("분반", "#FFD700")
+        add_legend("합반", "#2196F3")
+        add_legend("전출", "#9E9E9E")
+        add_legend("일반", "#FFFFFF")
+        legend_layout.addStretch()
+        main_layout.addLayout(legend_layout)
+
+        # 칸반 보드 (반별 컬럼)
+        kanban_layout = QHBoxLayout()
+        kanban_layout.setSpacing(8)
+
+        self.class_columns = {}
+        for class_id in range(1, self.assigner.target_class_count + 1):
+            column = ClassColumn(class_id, self.assigner)
+            column.class_clicked.connect(self.on_class_clicked)
+            self.class_columns[class_id] = column
+            kanban_layout.addWidget(column)
+
+        main_layout.addLayout(kanban_layout)
+
+        # 하단: 통계
+        stats_layout = QHBoxLayout()
+        total_students = sum(len(students) for students in self.assigner.classes.values())
+        stats_label = QLabel(f"총 학생 수: {total_students}명 | {self.assigner.target_class_count}개 반")
+        stats_label.setFont(QFont("", 11))
+        stats_layout.addWidget(stats_label)
+        stats_layout.addStretch()
+
+        version_label = QLabel(f"Version: {VERSION}")
+        version_label.setStyleSheet("color: gray;")
+        stats_layout.addWidget(version_label)
+        main_layout.addLayout(stats_layout)
+
+        main_widget.setLayout(main_layout)
+        self.setCentralWidget(main_widget)
+
+    def on_class_clicked(self, class_id):
+        """반 클릭 핸들러"""
+        if class_id in self.selected_classes:
+            # 이미 선택된 반 클릭 → 선택 해제
+            self.selected_classes.remove(class_id)
+            self.class_columns[class_id].set_selected(False)
+        else:
+            if len(self.selected_classes) >= 2:
+                # 2개 초과 → 첫 번째 선택 해제
+                old_class = self.selected_classes.pop(0)
+                self.class_columns[old_class].set_selected(False)
+
+            self.selected_classes.append(class_id)
+            self.class_columns[class_id].set_selected(True)
+
+        self.update_selection_ui()
+
+    def update_selection_ui(self):
+        """선택 상태 UI 업데이트"""
+        if len(self.selected_classes) == 0:
+            self.selection_label.setText("반을 2개 선택하세요")
+            self.edit_btn.setEnabled(False)
+        elif len(self.selected_classes) == 1:
+            self.selection_label.setText(f"선택: {self.selected_classes[0]}반 (1개 더 선택)")
+            self.edit_btn.setEnabled(False)
+        else:
+            self.selection_label.setText(f"선택: {self.selected_classes[0]}반 ↔ {self.selected_classes[1]}반")
+            self.edit_btn.setEnabled(True)
+
+    def open_editor(self):
+        """수동 조정 화면 열기"""
+        if len(self.selected_classes) != 2:
+            return
+
+        logger.info(f"Opening editor with classes: {self.selected_classes}")
+        self.editor = InteractiveEditorGUI(
+            self.result_file,
+            initial_classes=self.selected_classes
+        )
+        self.editor.show()
+        self.close()
+
+    def export_to_excel(self):
+        """Excel 파일로 내보내기"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "결과 파일 저장",
+            os.path.join(get_base_path(), "03 배정 결과.xlsx"),
+            "Excel files (*.xlsx)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            self.assigner.generate_output(file_path)
+            QMessageBox.information(self, "완료", f"✅ 파일이 저장되었습니다:\n\n{file_path}")
+            logger.info(f"Results exported to: {file_path}")
+        except Exception as e:
+            logger.error(f"Export error: {e}", exc_info=True)
+            QMessageBox.critical(self, "오류", f"❌ 파일 저장 중 오류:\n\n{str(e)}")
+
+
+class InteractiveEditorGUI(QMainWindow):
+    """수동 조정 화면 (Symmetrical Dual-Panel)"""
+
+    def __init__(self, result_file: str, initial_classes: list = None):
+        super().__init__()
+
+        self.result_file = result_file  # 결과 파일 경로 저장
+        self.initial_classes = initial_classes  # 초기 선택 반 저장
+
         logger.info("=" * 70)
         logger.info("InteractiveEditorGUI 초기화 시작")
         logger.info(f"결과 파일: {result_file}")
+        logger.info(f"초기 선택 반: {initial_classes}")
 
         # Assigner 로드
         try:
@@ -1338,20 +1702,17 @@ class InteractiveEditorGUI(QMainWindow):
                 target_class_count=7
             )
             logger.info("ClassAssigner 객체 생성 완료")
-            
+
             logger.info("결과 파일 로드 시작...")
             self.assigner.load_from_result(result_file)
             logger.info("결과 파일 로드 완료")
-            
+
             logger.info("UI 초기화 시작...")
             self.init_ui()
             logger.info("UI 초기화 완료")
-            logger.info("UI 초기화 완료")
-            
+
         except Exception as e:
             logger.error("InteractiveEditorGUI 초기화 실패", exc_info=True)
-            # log_exception removed (redundant)
-            # 예외를 다시 발생시켜서 상위에서 처리하도록 함
             raise
 
     def init_ui(self):
@@ -1427,14 +1788,23 @@ class InteractiveEditorGUI(QMainWindow):
         right_sidebar.addWidget(legend_group)
         
         right_sidebar.addStretch()
-        
+
+        # 전체 보기로 돌아가기 버튼
+        back_btn = QPushButton("📋\n전\n체")
+        back_btn.setFixedSize(50, 80)
+        back_btn.setToolTip("전체 학생 보기로 돌아가기")
+        back_btn.clicked.connect(self.go_to_overview)
+        right_sidebar.addWidget(back_btn)
+
+        right_sidebar.addSpacing(10)
+
         # Export 버튼
         export_btn = QPushButton("💾\n저\n장")
         export_btn.setFixedSize(50, 80)
         export_btn.setStyleSheet("background-color: #FF9800; color: white; font-weight: bold;")
         export_btn.clicked.connect(self.export_to_excel)
         right_sidebar.addWidget(export_btn)
-        
+
         # Version footer
         version_label = QLabel(f"v{VERSION}")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1449,9 +1819,12 @@ class InteractiveEditorGUI(QMainWindow):
         # 초기 버튼 상태 업데이트
         self.update_buttons_state()
 
-        # 편의상 반 자동 선택 (1반, 2반)
-        if self.assigner.target_class_count >= 2:
-            self.left_panel.set_current_class(1) 
+        # 초기 반 선택 (OverviewGUI에서 전달받은 값 또는 기본값)
+        if self.initial_classes and len(self.initial_classes) >= 2:
+            self.left_panel.set_current_class(self.initial_classes[0])
+            self.right_panel.set_current_class(self.initial_classes[1])
+        elif self.assigner.target_class_count >= 2:
+            self.left_panel.set_current_class(1)
             self.right_panel.set_current_class(2)
             
     def update_buttons_state(self):
@@ -1648,6 +2021,44 @@ class InteractiveEditorGUI(QMainWindow):
                 "오류",
                 f"❌ 파일 저장 중 오류:\n\n{str(e)}"
             )
+
+    def go_to_overview(self):
+        """전체 학생 보기 화면으로 돌아가기"""
+        logger.info("Go to Overview button clicked.")
+
+        # 변경사항 저장 확인
+        reply = QMessageBox.question(
+            self,
+            "전체 보기로 이동",
+            "현재 변경사항을 저장하고 전체 보기로 이동하시겠습니까?\n\n"
+            "(저장하지 않으면 변경사항이 유지되지 않습니다)",
+            QMessageBox.StandardButton.Save |
+            QMessageBox.StandardButton.Discard |
+            QMessageBox.StandardButton.Cancel
+        )
+
+        if reply == QMessageBox.StandardButton.Cancel:
+            return
+
+        if reply == QMessageBox.StandardButton.Save:
+            # 현재 결과 파일에 저장
+            try:
+                self.assigner.generate_output(self.result_file)
+                logger.info(f"Changes saved to: {self.result_file}")
+            except Exception as e:
+                logger.error(f"Error saving before overview: {e}", exc_info=True)
+                QMessageBox.critical(self, "오류", f"저장 중 오류:\n{str(e)}")
+                return
+
+        # OverviewGUI로 이동
+        try:
+            self.overview_gui = OverviewGUI(self.result_file)
+            self.overview_gui.show()
+            self.close()
+            logger.info("Returned to OverviewGUI successfully.")
+        except Exception as e:
+            logger.error(f"Failed to return to OverviewGUI: {e}", exc_info=True)
+            QMessageBox.critical(self, "오류", f"전체 보기 화면 로드 중 오류:\n{str(e)}")
 
 
 def set_global_style(app: QApplication) -> None:
