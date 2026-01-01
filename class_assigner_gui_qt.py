@@ -1355,6 +1355,12 @@ class CompactStudentCard(QFrame):
         gender_label = QLabel(self.student.성별)
         gender_label.setFont(QFont("", 9))
         layout.addWidget(gender_label)
+        
+        # 난이도 (0이 아닌 경우만 표시)
+        if self.student.난이도 and float(self.student.난이도) != 0.0:
+            diff_label = QLabel(f"난{int(self.student.난이도)}")
+            diff_label.setFont(QFont("", 9))
+            layout.addWidget(diff_label)
 
         layout.addStretch()
         self.setLayout(layout)
@@ -1371,6 +1377,9 @@ class CompactStudentCard(QFrame):
                 background-color: palette(alternateBase);
             }
         """)
+        
+        # 툴팁 설정 (합반/분반 정보)
+        self._set_tooltip()
 
     def _get_status_color(self):
         """학생 상태에 따른 색상 반환"""
@@ -1386,6 +1395,74 @@ class CompactStudentCard(QFrame):
                 if self.student.이름 in group:
                     return "#2196F3"  # 파랑 (합반)
         return "#FFFFFF"  # 흰색 (일반)
+    
+    def _set_tooltip(self):
+        """합반/분반/특수반/전출 정보를 툴팁으로 표시"""
+        # 분반/합반/특수반/전출이 아닌 일반 학생은 툴팁 없음
+        has_separation = self.student.이름 in self.assigner.separation_rules
+        has_together = any(self.student.이름 in group for group in self.assigner.together_groups)
+        
+        if not (self.student.특수반 or self.student.전출 or has_separation or has_together):
+            # 일반 학생은 툴팁 없음
+            return
+        
+        tooltip_parts = []
+        
+        # 기본 정보
+        basic_info = f"{self.student.이름} ({self.student.성별})"
+        if self.student.특수반:
+            basic_info += " - 특수반"
+        if self.student.전출:
+            basic_info += " - 전출"
+        tooltip_parts.append(basic_info)
+        
+        # 분반 규칙 확인
+        if has_separation:
+            partners = self.assigner.separation_rules[self.student.이름]
+            partner_infos = []
+            for partner_name in partners:
+                # 파트너의 반 찾기
+                partner_class = self._find_student_class(partner_name)
+                if partner_class:
+                    partner_infos.append(f"{partner_class}반 {partner_name}")
+                else:
+                    partner_infos.append(f"미배정 {partner_name}")
+            
+            if partner_infos:
+                tooltip_parts.append(f"🚫 분반 대상: {', '.join(partner_infos)}")
+        
+        # 합반 규칙 확인
+        if has_together:
+            for group in self.assigner.together_groups:
+                if self.student.이름 in group:
+                    partners = group - {self.student.이름}
+                    partner_infos = []
+                    for partner_name in partners:
+                        # 파트너의 반 찾기
+                        partner_class = self._find_student_class(partner_name)
+                        if partner_class:
+                            partner_infos.append(f"{partner_class}반 {partner_name}")
+                        else:
+                            partner_infos.append(f"미배정 {partner_name}")
+                    
+                    if partner_infos:
+                        tooltip_parts.append(f"🤝 합반 대상: {', '.join(partner_infos)}")
+                    break
+        
+        # 툴팁 설정 (항상 표시, 이미 필터링됨)
+        self.setToolTip("\n".join(tooltip_parts))
+    
+    def _find_student_class(self, student_name):
+        """학생 이름으로 반 번호 찾기"""
+        import unicodedata
+        target_name = unicodedata.normalize('NFC', student_name.strip())
+        
+        for class_id, students in self.assigner.classes.items():
+            for s in students:
+                s_name_clean = unicodedata.normalize('NFC', s.이름.strip())
+                if s_name_clean == target_name:
+                    return class_id
+        return None
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -1540,11 +1617,14 @@ class ClassColumn(QFrame):
     def dragEnterEvent(self, event):
         """드래그 진입 이벤트"""
         if event.mimeData().hasFormat("application/x-student"):
-            # 다른 반에서 온 경우만 수락
             data = event.mimeData().data("application/x-student").data().decode()
             from_class = int(data.split(":")[0])
+            
+            # 같은 반이든 다른 반이든 모두 허용
+            event.acceptProposedAction()
+            
             if from_class != self.class_id:
-                event.acceptProposedAction()
+                # 다른 반에서 온 경우: 강조 표시
                 self.setStyleSheet("""
                     ClassColumn {
                         border: 2px dashed palette(highlight);
@@ -1552,8 +1632,7 @@ class ClassColumn(QFrame):
                         background-color: palette(alternateBase);
                     }
                 """)
-            else:
-                event.ignore()
+            # 같은 반 내에서의 이동은 기본 스타일 유지
         else:
             event.ignore()
 
@@ -1563,12 +1642,7 @@ class ClassColumn(QFrame):
             event.ignore()
             return
 
-        data = event.mimeData().data("application/x-student").data().decode()
-        from_class = int(data.split(":")[0])
-        if from_class == self.class_id:
-            event.ignore()
-            return
-
+        # 같은 반이든 다른 반이든 모두 허용
         event.acceptProposedAction()
 
         # 드롭 위치 계산 (student_container 내 좌표로 변환)
@@ -1652,8 +1726,9 @@ class ClassColumn(QFrame):
                     student = s
                     break
 
-            if student and from_class != self.class_id:
-                # 시그널 발송 (OverviewGUI에서 처리) - 삽입 위치 포함
+            if student:
+                # 시그널 발송 (OverviewGUI에서 처리)
+                # from_class == self.class_id인 경우 순서 변경, 다른 경우 반 이동
                 self.student_moved.emit(from_class, self.class_id, student, insert_index)
                 event.acceptProposedAction()
             else:
@@ -1822,32 +1897,70 @@ class OverviewGUI(QMainWindow):
         """학생 이동 처리 (드래그 앤 드롭)"""
         logger.info(f"학생 이동: {student.이름} ({from_class}반 → {to_class}반, 위치: {insert_index})")
 
-        # 1. 원래 반에서 학생 제거
-        if from_class in self.assigner.classes:
-            if student in self.assigner.classes[from_class]:
-                self.assigner.classes[from_class].remove(student)
-
-        # 2. 목표 반에 학생 추가 (특정 위치에 삽입)
-        if to_class not in self.assigner.classes:
-            self.assigner.classes[to_class] = []
-
-        if insert_index >= 0 and insert_index < len(self.assigner.classes[to_class]):
-            # 특정 위치에 삽입
-            self.assigner.classes[to_class].insert(insert_index, student)
+        if from_class == to_class:
+            # 같은 반 내에서 순서 변경
+            logger.info(f"같은 반 ({from_class}반) 내에서 순서 변경")
+            
+            if from_class in self.assigner.classes:
+                students = self.assigner.classes[from_class]
+                
+                # 현재 위치 찾기
+                if student in students:
+                    current_index = students.index(student)
+                    
+                    # 학생 제거
+                    students.pop(current_index)
+                    
+                    # 새 위치에 삽입
+                    if insert_index >= 0:
+                        # insert_index가 current_index보다 뒤에 있었다면 조정 필요
+                        if insert_index > current_index:
+                            insert_index -= 1
+                        
+                        # 범위 체크
+                        if insert_index > len(students):
+                            insert_index = len(students)
+                        
+                        students.insert(insert_index, student)
+                        logger.info(f"순서 변경: {current_index} → {insert_index}")
+                    else:
+                        # 맨 뒤에 추가
+                        students.append(student)
+                        logger.info(f"순서 변경: {current_index} → 맨 뒤")
+                    
+                    # UI 새로고침
+                    if from_class in self.class_columns:
+                        self.class_columns[from_class].refresh_students()
         else:
-            # 맨 뒤에 추가
-            self.assigner.classes[to_class].append(student)
+            # 다른 반으로 이동
+            logger.info(f"다른 반으로 이동: {from_class}반 → {to_class}반")
+            
+            # 1. 원래 반에서 학생 제거
+            if from_class in self.assigner.classes:
+                if student in self.assigner.classes[from_class]:
+                    self.assigner.classes[from_class].remove(student)
 
-        # 3. 두 반의 UI 새로고침
-        if from_class in self.class_columns:
-            self.class_columns[from_class].refresh_students()
-        if to_class in self.class_columns:
-            self.class_columns[to_class].refresh_students()
+            # 2. 목표 반에 학생 추가 (특정 위치에 삽입)
+            if to_class not in self.assigner.classes:
+                self.assigner.classes[to_class] = []
 
-        # 4. 하단 통계 업데이트
-        self.update_stats()
+            if insert_index >= 0 and insert_index < len(self.assigner.classes[to_class]):
+                # 특정 위치에 삽입
+                self.assigner.classes[to_class].insert(insert_index, student)
+            else:
+                # 맨 뒤에 추가
+                self.assigner.classes[to_class].append(student)
 
-        logger.info(f"학생 이동 완료: {from_class}반({len(self.assigner.classes.get(from_class, []))}명) → {to_class}반({len(self.assigner.classes.get(to_class, []))}명)")
+            # 3. 두 반의 UI 새로고침
+            if from_class in self.class_columns:
+                self.class_columns[from_class].refresh_students()
+            if to_class in self.class_columns:
+                self.class_columns[to_class].refresh_students()
+
+            # 4. 하단 통계 업데이트
+            self.update_stats()
+
+            logger.info(f"학생 이동 완료: {from_class}반({len(self.assigner.classes.get(from_class, []))}명) → {to_class}반({len(self.assigner.classes.get(to_class, []))}명))")
 
     def update_stats(self):
         """하단 통계 업데이트"""
