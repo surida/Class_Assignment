@@ -493,7 +493,16 @@ class StudentTreeWidget(QTreeWidget):
     def dropEvent(self, event):
         """Handle internal reordering and external drops"""
         source = event.source()
-        
+        drop_pos = event.position().toPoint()
+        target_item = self.itemAt(drop_pos)
+        indicator = self.dropIndicatorPosition()
+
+        # OnItem일 때는 드롭 무시 (명확한 위치 지정 필요)
+        if target_item and indicator == QAbstractItemView.DropIndicatorPosition.OnItem:
+            logger.debug("OnItem: Drop ignored - require clear position (Above/Below)")
+            event.ignore()
+            return
+
         # 1. Internal Reorder
         if source == self:
             # Use default implementation to move visual items
@@ -502,27 +511,22 @@ class StudentTreeWidget(QTreeWidget):
             return
 
         # 2. External Drop (from another class)
-        drop_pos = event.position().toPoint()
-        target_item = self.itemAt(drop_pos)
         drop_index = -1
-        
+
         logger.debug(f"Drop Event at {drop_pos}, Target Item: {target_item is not None}")
-        
+
         if target_item:
             drop_index = self.indexOfTopLevelItem(target_item)
-            indicator = self.dropIndicatorPosition()
-            
+
             logger.debug(f"  - Initial Index: {drop_index}")
             logger.debug(f"  - Indicator: {indicator}")
 
             if indicator == QAbstractItemView.DropIndicatorPosition.BelowItem:
                 drop_index += 1
                 logger.debug("  - Adjusted Index (+1) due to BelowItem")
-            elif indicator == QAbstractItemView.DropIndicatorPosition.OnItem:
-                logger.debug("  - OnItem: Treating as insert before")
             elif indicator == QAbstractItemView.DropIndicatorPosition.AboveItem:
                 logger.debug("  - AboveItem: Keeping index")
-                
+
         else:
              # Dropped on empty space
              logger.debug("  - Dropped on empty space")
@@ -530,7 +534,7 @@ class StudentTreeWidget(QTreeWidget):
                  last_item = self.topLevelItem(self.topLevelItemCount() - 1)
                  last_rect = self.visualItemRect(last_item)
                  logger.debug(f"  - Last Item Rect: {last_rect}, Drop Y: {drop_pos.y()}")
-                 
+
                  if drop_pos.y() > last_rect.y() + last_rect.height():
                      drop_index = self.topLevelItemCount()
                      logger.debug("  - Appending to end (below last item)")
@@ -540,9 +544,9 @@ class StudentTreeWidget(QTreeWidget):
              else:
                  drop_index = 0
                  logger.debug("  - Empty list, inserting at 0")
-        
+
         logger.debug(f"Final Drop Index emitted: {drop_index}")
-        self.item_dropped.emit(source, self, drop_index) 
+        self.item_dropped.emit(source, self, drop_index)
         event.ignore() 
         
     def sync_order(self):
@@ -2238,30 +2242,6 @@ class InteractiveEditorGUI(QMainWindow):
     def go_to_overview(self):
         """전체 학생 보기 화면으로 돌아가기"""
         logger.info("Go to Overview button clicked.")
-
-        # 변경사항 저장 확인
-        reply = QMessageBox.question(
-            self,
-            "전체 보기로 이동",
-            "현재 변경사항을 저장하고 전체 보기로 이동하시겠습니까?\n\n"
-            "(저장하지 않으면 변경사항이 유지되지 않습니다)",
-            QMessageBox.StandardButton.Save |
-            QMessageBox.StandardButton.Discard |
-            QMessageBox.StandardButton.Cancel
-        )
-
-        if reply == QMessageBox.StandardButton.Cancel:
-            return
-
-        if reply == QMessageBox.StandardButton.Save:
-            # 현재 결과 파일에 저장
-            try:
-                self.assigner.generate_output(self.result_file)
-                logger.info(f"Changes saved to: {self.result_file}")
-            except Exception as e:
-                logger.error(f"Error saving before overview: {e}", exc_info=True)
-                QMessageBox.critical(self, "오류", f"저장 중 오류:\n{str(e)}")
-                return
 
         # OverviewGUI로 이동 (assigner 객체 전달하여 변경사항 유지)
         try:
