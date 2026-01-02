@@ -9,7 +9,10 @@ VERSION = "v2.8"  # Update this for each release
 import sys
 import os
 import threading
-from logger_config import logger  # Import logger
+import webbrowser
+import subprocess
+import platform
+from logger_config import logger, get_log_dir  # Import logger and log dir function
 import traceback
 import logging
 import unicodedata
@@ -57,6 +60,73 @@ def create_composite_icon(colors, size=16):
     return QIcon(pixmap)
 from class_assigner import ClassAssigner, get_base_path
 
+# 피드백 폼 URL (전역 상수)
+FEEDBACK_FORM_URL = "https://forms.gle/qzkLKsSCeAAZ2HFP7"
+
+
+def setup_help_menu(window):
+    """공통 도움말 메뉴 설정 (모든 QMainWindow에서 사용)"""
+    menubar = window.menuBar()
+
+    # 도움말 메뉴
+    help_menu = menubar.addMenu("도움말")
+
+    # 피드백 보내기
+    feedback_action = help_menu.addAction("💬 피드백 보내기")
+    feedback_action.triggered.connect(lambda: open_feedback_form())
+
+    # 로그 파일 위치 열기
+    log_action = help_menu.addAction("📁 로그 파일 위치 열기")
+    log_action.triggered.connect(lambda: open_log_folder(window))
+
+    help_menu.addSeparator()
+
+    # 프로그램 정보
+    about_action = help_menu.addAction("ℹ️ 프로그램 정보")
+    about_action.triggered.connect(lambda: show_about(window))
+
+
+def open_feedback_form():
+    """Google Form 피드백 페이지 열기"""
+    logger.info("Opening feedback form...")
+    webbrowser.open(FEEDBACK_FORM_URL)
+
+
+def open_log_folder(parent_window=None):
+    """로그 파일 폴더를 OS 파일 탐색기로 열기"""
+    log_dir = get_log_dir()
+    logger.info(f"Opening log folder: {log_dir}")
+
+    system = platform.system()
+    try:
+        if system == "Windows":
+            os.startfile(log_dir)
+        elif system == "Darwin":  # Mac
+            subprocess.run(["open", log_dir])
+        else:  # Linux
+            subprocess.run(["xdg-open", log_dir])
+    except Exception as e:
+        logger.error(f"Failed to open log folder: {e}")
+        if parent_window:
+            QMessageBox.warning(
+                parent_window,
+                "알림",
+                f"로그 폴더를 열 수 없습니다.\n\n경로: {log_dir}"
+            )
+
+
+def show_about(parent_window):
+    """프로그램 정보 다이얼로그"""
+    log_dir = get_log_dir()
+    QMessageBox.about(
+        parent_window,
+        "프로그램 정보",
+        f"🎓 자동 학급 편성 프로그램\n\n"
+        f"버전: {VERSION}\n\n"
+        f"문의: angoansu@gmail.com\n\n"
+        f"로그 위치:\n{log_dir}"
+    )
+
 
 class ClassAssignerStartGUI(QMainWindow):
     """시작 화면: 새로 시작 vs 결과 불러오기"""
@@ -65,6 +135,7 @@ class ClassAssignerStartGUI(QMainWindow):
         super().__init__()
         logger.info("ClassAssignerStartGUI Initialized")
         self.init_ui()
+        setup_help_menu(self)  # 공통 도움말 메뉴
 
     def init_ui(self):
         """UI 초기화"""
@@ -907,6 +978,7 @@ class ClassAssignerGUI(QMainWindow):
 
         # UI 구성
         self.init_ui()
+        setup_help_menu(self)  # 공통 도움말 메뉴
 
         # 기본 파일 경로 설정
         self.load_default_files()
@@ -1566,7 +1638,8 @@ class ClassColumn(QFrame):
         # 헤더 텍스트 구성
         header_text = f"{self.class_id}반 ({total}명)\n"
         header_text += f"남{male} 여{female}\n"
-        header_text += f"난이도합:{int(total_difficulty)} 평균:{avg_score:.1f}"
+        header_text += f"난이도합:{int(total_difficulty)}\n"
+        header_text += f"학업평균:{avg_score:.1f}"
         
         self.header.setText(header_text)
         self.header.setFont(QFont("", 11, QFont.Weight.Bold))
@@ -1786,6 +1859,7 @@ class OverviewGUI(QMainWindow):
                 logger.info("결과 파일 로드 완료")
 
             self.init_ui()
+            setup_help_menu(self)  # 공통 도움말 메뉴
             logger.info("OverviewGUI UI 초기화 완료")
 
         except Exception as e:
@@ -2056,6 +2130,7 @@ class InteractiveEditorGUI(QMainWindow):
 
             logger.info("UI 초기화 시작...")
             self.init_ui()
+            setup_help_menu(self)  # 공통 도움말 메뉴
             logger.info("UI 초기화 완료")
 
         except Exception as e:

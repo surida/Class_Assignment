@@ -1,18 +1,43 @@
 import logging
 import os
 import sys
+import platform
 
 from logging.handlers import RotatingFileHandler
 
+
+def get_app_data_dir():
+    """OS별 앱 데이터 폴더 반환 (권한 문제 없는 사용자 폴더)"""
+    system = platform.system()
+
+    if system == "Windows":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+    elif system == "Darwin":  # Mac
+        base = os.path.join(os.path.expanduser("~"), "Library", "Application Support")
+    else:  # Linux
+        base = os.path.join(os.path.expanduser("~"), ".local", "share")
+
+    app_dir = os.path.join(base, "ClassAssigner")
+    os.makedirs(app_dir, exist_ok=True)
+    return app_dir
+
+
+def get_log_dir():
+    """로그 폴더 반환"""
+    log_dir = os.path.join(get_app_data_dir(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    return log_dir
+
+
 def setup_logging():
     """
-    Sets up logging to 'logs/class_assigner.log' with rotation and console output.
+    Sets up logging to user data folder with rotation and console output.
+    - Windows: %APPDATA%/ClassAssigner/logs/
+    - Mac: ~/Library/Application Support/ClassAssigner/logs/
+    - Linux: ~/.local/share/ClassAssigner/logs/
     """
-    # Ensure logs directory exists
-    base_path = os.path.dirname(os.path.abspath(__file__))
-    log_dir = os.path.join(base_path, "logs")
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    # Ensure logs directory exists in user data folder
+    log_dir = get_log_dir()
         
     log_file = os.path.join(log_dir, "class_assigner.log")
     
