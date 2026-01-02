@@ -822,10 +822,14 @@ class ClassPanel(QWidget):
         transfer_count = sum(1 for s in students if s.전출)
         difficulty_sum = sum(s.난이도 for s in students)
         
-        # Update: Show Special, Transfer, and Difficulty Sum (User Request)
+        # 성적 평균 계산
+        scores = [float(s.점수) for s in students if s.점수]
+        avg_score = sum(scores) / len(scores) if scores else 0
+        
+        # Update: Show Special, Transfer, Difficulty Sum, and Score Average
         stats_text = (
             f"특수 {special_count}  ·  전출 {transfer_count}  |  "
-            f"난이도 합 {int(difficulty_sum)}"
+            f"난이도합 {int(difficulty_sum)}  ·  평균 {avg_score:.1f}"
         )
         self.stats_label.setText(stats_text)
 
@@ -1551,7 +1555,20 @@ class ClassColumn(QFrame):
         total = len(students)
         male = sum(1 for s in students if s.성별 == '남')
         female = sum(1 for s in students if s.성별 == '여')
-        self.header.setText(f"{self.class_id}반 ({total}명)\n남{male} 여{female}")
+        
+        # 난이도 합계 계산
+        total_difficulty = sum(float(s.난이도) if s.난이도 else 0 for s in students)
+        
+        # 성적 평균 계산
+        scores = [float(s.점수) for s in students if s.점수]
+        avg_score = sum(scores) / len(scores) if scores else 0
+        
+        # 헤더 텍스트 구성
+        header_text = f"{self.class_id}반 ({total}명)\n"
+        header_text += f"남{male} 여{female}\n"
+        header_text += f"난이도합:{int(total_difficulty)} 평균:{avg_score:.1f}"
+        
+        self.header.setText(header_text)
         self.header.setFont(QFont("", 11, QFont.Weight.Bold))
 
     def update_style(self):
